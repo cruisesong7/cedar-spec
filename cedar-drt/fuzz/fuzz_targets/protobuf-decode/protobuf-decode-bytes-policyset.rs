@@ -18,11 +18,15 @@
 
 use cedar_drt_inner::fuzz_target;
 
+use cedar_drt_inner::props::policyset_to_cedar_parses;
 use cedar_policy::PolicySet;
 use cedar_policy::proto::traits::Protobuf;
 
 // Feed arbitrary bytes into PolicySet protobuf decoder.
 // The property under test: decode either returns Ok or Err, never panics.
 fuzz_target!(|input: &[u8]| {
-    let _ = PolicySet::decode(input);
+    match PolicySet::decode(input) {
+        Ok(ps) => policyset_to_cedar_parses(ps),
+        Err(_) => (), // error is fine here
+    }
 });
