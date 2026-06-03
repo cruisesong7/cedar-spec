@@ -4,6 +4,8 @@ import Cedar.Thm.Data.String
 namespace Cedar.Thm.Decimal
 open Cedar.Spec.Ext
 
+/-- A string is well-formed for decimal parsing: splits on `'.'` into a valid integer left
+part and a 1–4 digit natural number right part. -/
 def IsWfStr (s : String) : Prop :=
  ∃ left right,
     s.splitToList (· = '.') = [left, right] ∧
@@ -13,6 +15,7 @@ def IsWfStr (s : String) : Prop :=
     (toInt?' left).isSome ∧
     (toNat?' right).isSome
 
+/-- Compute the integer value that a well-formed decimal string represents. -/
 def computeValue (s : String) : Int :=
   match s.splitToList (· = '.') with
   | [left, right] =>
