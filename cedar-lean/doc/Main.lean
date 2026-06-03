@@ -19,6 +19,18 @@ def main := manualMain (%doc CedarDoc) (config := {
         #logo img { height: 2rem; }
         #lean-logo { display: flex; align-items: center; }
         #lean-logo img { height: 1.8rem; }
+        .header-title-wrapper {
+          max-width: calc(100% - 28rem);
+          overflow: hidden;
+        }
+        .header-title h1 {
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+        main .titlepage h1 {
+          white-space: nowrap;
+        }
       "}}
     </style>
   }}, {{
