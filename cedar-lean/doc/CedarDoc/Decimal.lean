@@ -17,7 +17,7 @@ The accepted syntax for decimal literals is:
 
 ```
 Decimal  ::= Integer '.' Fraction
-Integer  ::= ['-'] Digit⁺       (not bare "-")
+Integer  ::= ['-'] Digit⁺
 Fraction ::= Digit{1,4}
 Digit    ::= '0' | '1' | … | '9'
 
@@ -73,7 +73,7 @@ none
 ```
 
 ```lean (name := ex3)
-#eval Decimal.parse "99999999999999999.0" -- overflow
+#eval Decimal.parse "922337203685477.5808" -- overflow
 ```
 ```leanOutput ex3
 none
