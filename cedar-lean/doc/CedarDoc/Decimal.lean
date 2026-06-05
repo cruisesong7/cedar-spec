@@ -21,9 +21,12 @@ Integer  ::= ['-'] Digit⁺
 Fraction ::= Digit{1,4}
 Digit    ::= '0' | '1' | … | '9'
 
-value(Integer '.' Fraction) =
+value(Decimal) =
   int(Integer) × 10⁴ + sign × nat(Fraction) × 10^(4 - |Fraction|)
-  where sign = -1 if Integer starts with '-', else 1
+  where sign   = -1 if Integer starts with '-', else 1
+        int(s) = integer value of s (e.g., int("-12") = -12)
+        nat(s) = natural number value of s (e.g., nat("03") = 3)
+        |s|    = length of s
 
 Constraint: value(Decimal) ∈ [Int64.min, Int64.max]
 ```
