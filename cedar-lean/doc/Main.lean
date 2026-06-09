@@ -6,7 +6,7 @@ open Verso.Output Html in
 
 def main := manualMain (%doc CedarDoc) (config := {
   logo := some "static/cedar-logo.png",
-  logoLink := some "https://github.com/cedar-policy/cedar-spec/tree/main/cedar-lean/Cedar/Thm",
+  logoLink := none,
   sourceLink := some "https://github.com/cedar-policy/cedar-spec/tree/main/cedar-lean/Cedar/Thm",
   extraHead := #[{{
     <style>
@@ -42,6 +42,8 @@ def main := manualMain (%doc CedarDoc) (config := {
           if (wrapper) {
             var cedarLogo = document.getElementById('logo');
             if (cedarLogo) cedarLogo.href = 'https://github.com/cedar-policy';
+            var titleLink = document.querySelector('.header-title');
+            if (titleLink) titleLink.href = document.querySelector('base').href;
             var leanLink = document.createElement('a');
             leanLink.id = 'lean-logo';
             leanLink.href = 'https://github.com/cedar-policy/cedar-spec/tree/main/cedar-lean/Cedar/Thm';

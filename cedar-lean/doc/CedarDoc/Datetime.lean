@@ -51,26 +51,35 @@ isLeapYear(y) =
   (4 | y) ∧ (¬(100 | y) ∨ (400 | y))
 ```
 
-A datetime string is _valid_ if and only if it satisfies the grammar and constraints above.
+A datetime string is _valid_ if and only if it satisfies the grammar and constraints above. Internally, a datetime is stored as milliseconds since the Unix epoch in an `Int64`. Since the grammar restricts years to at most 4 digits and offsets to at most ±23:59, the representable range is a strict subset of `Int64` — no valid string can overflow. This is a provable property:
 
--- # Duration Attribute Grammar
 
--- The accepted syntax for duration literals is:
+# Duration Grammar
 
--- ```
--- Duration   ::= ['-'] Components
--- Components ::= [Days] [Hours] [Minutes] [Seconds] [Millis]
+The accepted syntax for duration literals is:
 
--- Days       ::= Digit⁺ 'd'
--- Hours      ::= Digit⁺ 'h'
--- Minutes    ::= Digit⁺ 'm'
--- Seconds    ::= Digit⁺ 's'
--- Millis     ::= Digit⁺ 'ms'
+```
+Duration   ::= ['-'] Components
+Components ::= [Days] [Hours] [Minutes] [Seconds] [Millis]
 
--- Constraints:
---   - At least one component must be present
---   - Components must appear in order (largest to smallest)
---   - Final millisecond value ∈ [Int64.min, Int64.max]
--- ```
+Days       ::= Digit⁺ 'd'
+Hours      ::= Digit⁺ 'h'
+Minutes    ::= Digit⁺ 'm'
+Seconds    ::= Digit⁺ 's'
+Millis     ::= Digit⁺ 'ms'
+Digit      ::= '0' | '1' | … | '9'
 
--- A duration may be negative (prefixed with `-`).
+Constraints:
+  - At least one component must be present
+  - Components must appear in order (largest to smallest)
+  - value(Duration) ∈ [Int64.min, Int64.max]
+
+value(Duration) in milliseconds =
+  sign × (d × 86400000 + h × 3600000 + m × 60000
+          + s × 1000 + ms)
+  where sign    = -1 if '-' is present, else 1
+        d, h, m, s, ms = nat value of each component
+                         (0 if omitted)
+```
+
+A duration string is _valid_ if and only if it satisfies the grammar and constraints above.
