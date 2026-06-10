@@ -32,6 +32,36 @@ def main := manualMain (%doc CedarDoc) (config := {
         main .titlepage h1 {
           white-space: nowrap;
         }
+        @media screen and (max-width: 700px) {
+          header {
+            display: flex !important;
+            align-items: center !important;
+          }
+          .header-logo-wrapper {
+            display: flex !important;
+            order: 2;
+            margin-left: auto;
+            margin-right: 0.5rem;
+          }
+          #lean-logo img { height: 1.2rem; }
+          #logo img { height: 1.5rem; }
+          .header-title-wrapper {
+            max-width: unset;
+            overflow: visible;
+            order: 1;
+            text-align: center;
+            flex: 1;
+          }
+          .header-title h1 {
+            white-space: nowrap;
+            font-size: 0.85rem;
+            overflow: hidden;
+            text-overflow: ellipsis;
+          }
+          main .titlepage h1 {
+            white-space: normal;
+          }
+        }
       "}}
     </style>
   }}, {{
@@ -44,6 +74,10 @@ def main := manualMain (%doc CedarDoc) (config := {
             if (cedarLogo) cedarLogo.href = 'https://github.com/cedar-policy';
             var titleLink = document.querySelector('.header-title');
             if (titleLink) titleLink.href = document.querySelector('base').href;
+            if (window.innerWidth <= 700) {
+              var h1 = document.querySelector('.header-title h1');
+              if (h1) h1.textContent = 'Cedar Extension Parsers';
+            }
             var leanLink = document.createElement('a');
             leanLink.id = 'lean-logo';
             leanLink.href = 'https://github.com/cedar-policy/cedar-spec/tree/main/cedar-lean/Cedar/Thm';
