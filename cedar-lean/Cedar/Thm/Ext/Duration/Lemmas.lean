@@ -1,133 +1,23 @@
 module
 
-public import Cedar.Spec.Ext.Datetime
+public import Cedar.Thm.Ext.Duration.Grammar
+
+import all Cedar.Thm.Ext.Duration.Grammar
+import all Cedar.Data.Int64
 import all Cedar.Spec.Ext.Util
 import all Cedar.Spec.Ext.Datetime
+import all Init.Data.String.Search
 import Std.Data.String.ToNat
 
-namespace Cedar.Thm.Datetime
+namespace Cedar.Thm.Duration
 open Cedar.Spec.Ext
 open Datetime
 
-/-- Apply the duration sign to a natural number: negates if `isNegative`, otherwise coerces. -/
-public def signedQuantity (isNegative : Bool) (n : Nat) : Int :=
-  if isNegative then Int.negOfNat n else Int.ofNat n
-
-/-- A duration quantity token: a nonempty string of decimal digits parseable as a natural number.
-    Corresponds to the `Digit⁺` production in the duration grammar. -/
-public def IsDurationQuantity (digits : String) : Prop :=
-  digits ≠ "" ∧ (toNat?' digits).isSome
-
-/-- Render an optional duration component as its string representation.
-    `none` produces `""`, `some digits` produces `digits ++ suffix` (e.g., `"3" ++ "d"` = `"3d"`). -/
-public def durationChunk (digits? : Option String) (suffix : String) : String :=
-  match digits? with
-  | none => ""
-  | some digits => digits ++ suffix
-
-/-- Lift `IsDurationQuantity` to optional components: `none` is trivially valid. -/
-public def IsOptionalDurationQuantity : Option String → Prop
-  | none => True
-  | some digits => IsDurationQuantity digits
-
-/-- The five optional digit-string components of a duration body, one per time unit.
-    Each field holds `none` (unit absent) or `some digits` (unit present with that value). -/
-public structure DurationComponents where
-  days : Option String
-  hours : Option String
-  minutes : Option String
-  seconds : Option String
-  milliseconds : Option String
-
-/-- At least one component must be present (the body cannot be empty). -/
-public def DurationComponents.nonempty (components : DurationComponents) : Prop :=
-  components.days ≠ none ∨
-  components.hours ≠ none ∨
-  components.minutes ≠ none ∨
-  components.seconds ≠ none ∨
-  components.milliseconds ≠ none
-
-/-- Every present component must be a valid duration quantity (nonempty, parseable digits). -/
-public def DurationComponents.quantitiesWf
-    (components : DurationComponents) : Prop :=
-  IsOptionalDurationQuantity components.days ∧
-  IsOptionalDurationQuantity components.hours ∧
-  IsOptionalDurationQuantity components.minutes ∧
-  IsOptionalDurationQuantity components.seconds ∧
-  IsOptionalDurationQuantity components.milliseconds
-
-/-- Canonical string representation: concatenate present components in order `d h m s ms`.
-    Absent components contribute `""`. E.g., `{days := some "1", hours := none, ..., milliseconds := some "5"}`
-    becomes `"1d5ms"`. -/
-public def DurationComponents.asString (components : DurationComponents) : String :=
-  durationChunk components.days "d" ++
-  durationChunk components.hours "h" ++
-  durationChunk components.minutes "m" ++
-  durationChunk components.seconds "s" ++
-  durationChunk components.milliseconds "ms"
-
-/-- A duration body string is well-formed iff it equals `components.asString` for some
-    `DurationComponents` that is nonempty and has valid quantities. This encodes the grammar:
-    `Body ::= [Days][Hours][Minutes][Seconds][Millis]` with at least one unit present,
-    each unit's digits nonempty and parseable as a natural number. -/
-public def IsWfDurationBody (body : String) : Prop :=
-  ∃ components : DurationComponents,
-    components.nonempty ∧
-    components.quantitiesWf ∧
-    body = components.asString
-
-/-- A duration string is well-formed iff it is either a well-formed body directly,
-    or `"-"` followed by a well-formed body. Matches `Duration ::= ['-'] Body`. -/
-public def IsWfDurationStr (str : String) : Prop :=
-  IsWfDurationBody str ∨
-  ∃ body, str = "-" ++ body ∧ IsWfDurationBody body
-
-/-- Extract the trailing natural-number token immediately before a duration suffix.
-    Strips the suffix, then takes trailing digit characters from the remainder.
-    Returns `(n, rest)` where `n` is the parsed Nat and `rest` is the string
-    with both suffix and digits removed. Returns `(0, s)` as a junk value when
-    the suffix is absent or digits fail to parse. -/
-public def extractTrailingDurationQuantity (s : String) (suffix : String) : Nat × String :=
-  if s.endsWith suffix then
-    let rest := (s.dropEnd suffix.length).toString
-    let digits := rest.toList.reverse.takeWhile Char.isDigit |>.reverse
-    match toNat?' (String.ofList digits) with
-    | some n => (n, (rest.dropEnd digits.length).toString)
-    | none => (0, s)
-  else
-    (0, s)
-
-/-- Compute the unsigned millisecond total of a duration body by extracting each component
-    right-to-left (ms, s, m, h, d) and summing `component × multiplier`.
-    Only meaningful on well-formed input; returns junk on malformed strings. -/
-public def computeDurationBodyValue (body : String) : Int :=
-  let (ms, body) := extractTrailingDurationQuantity body "ms"
-  let (sec, body) := extractTrailingDurationQuantity body "s"
-  let (min, body) := extractTrailingDurationQuantity body "m"
-  let (hr, body) := extractTrailingDurationQuantity body "h"
-  let (day, _) := extractTrailingDurationQuantity body "d"
-  ↑day * MILLISECONDS_PER_DAY +
-  ↑hr * MILLISECONDS_PER_HOUR +
-  ↑min * MILLISECONDS_PER_MINUTE +
-  ↑sec * MILLISECONDS_PER_SECOND +
-  ↑ms
-
-/-- Compute the signed millisecond value: negates the unsigned total when `isNegative`. -/
-public def computeSignedDurationBodyValue (isNegative : Bool) (body : String) : Int :=
-  let value := computeDurationBodyValue body
-  if isNegative then -value else value
-
-/-- Compute the total signed millisecond value of a full duration string,
-    first splitting off the sign via `isNegativeDuration`. -/
-public def computeDurationValue (str : String) : Int :=
-  let (isNegative, body) := isNegativeDuration str
-  computeSignedDurationBodyValue isNegative body
-
 /-- `duration?` fails exactly when the value lies outside the Int64 range. -/
 theorem duration?_eq_none_iff_overflow (value : Int) :
-    Datetime.duration? value = none ↔ value < Int64.MIN ∨ value > Int64.MAX := by
-  have hopt : Datetime.duration? value = none ↔ Int64.ofInt? value = none := by
-    unfold Datetime.duration?
+    duration? value = none ↔ value < Int64.MIN ∨ value > Int64.MAX := by
+  have hopt : duration? value = none ↔ Int64.ofInt? value = none := by
+    unfold duration?
     cases Int64.ofInt? value <;> simp
   exact hopt.trans (Int64.ofInt?_none_iff (i := value)).symm
 
@@ -267,7 +157,7 @@ private theorem front_append_of_ne_empty (s t : String) (h : s ≠ "") :
   | cons _ _ => simp
 
 -- A well-formed duration body cannot start with '-'.
-private theorem duration_body_front_ne_dash (body : String)
+theorem duration_body_front_ne_dash (body : String)
     (h : IsWfDurationBody body) :
     body.front ≠ '-' := by
   obtain ⟨⟨days, hours, minutes, seconds, milliseconds⟩, hne, hwf, hbody⟩ := h
@@ -518,7 +408,7 @@ private theorem extract_reconstruct_step (isNeg : Bool) (s suffix : String) (v :
 
 /-- A successful `parseDuration?` call implies the input body is well-formed.
     Used to prove that `parseDuration?_none_of_not_wf` is the right converse. -/
-private theorem wf_of_parseDuration?_eq_some (isNeg : Bool) (body : String) (d : Duration)
+theorem wf_of_parseDuration?_eq_some (isNeg : Bool) (body : String) (d : Duration)
     (h : parseDuration? isNeg body = some d) :
     IsWfDurationBody body := by
   unfold parseDuration? at h
@@ -548,8 +438,7 @@ private theorem wf_of_parseDuration?_eq_some (isNeg : Bool) (body : String) (d :
               obtain ⟨v_d, rest₅⟩ := p₅; simp only [h₅] at h
               split at h
               · rename_i h_empty
-                have hrest₅_eq : rest₅ = "" := by
-                  rwa [String.isEmpty_iff] at h_empty
+                have hrest₅_eq : rest₅ = "" := String.isEmpty_iff.mp h_empty
                 have hr₁ := parseUnit?_success_rest isNeg body "ms" v_ms rest₁ h₁
                 have hr₂ := parseUnit?_success_rest isNeg rest₁ "s" v_s rest₂ h₂
                 have hr₃ := parseUnit?_success_rest isNeg rest₂ "m" v_m rest₃ h₃
@@ -617,23 +506,23 @@ private theorem wf_of_parseDuration?_eq_some (isNeg : Bool) (body : String) (d :
                   simp only
                   refine ⟨?_, ?_, ?_, ?_, ?_⟩
                   · split
-                    · exact True.intro
+                    · trivial
                     · rename_i d hds
                       exact hds_wf _ _ isNeg v_d rest₅ d (by rw [hr₄, hr₃, hr₂, hr₁] at h₅; exact h₅) hds
                   · split
-                    · exact True.intro
+                    · trivial
                     · rename_i d hds
                       exact hds_wf _ _ isNeg v_h rest₄ d (by rw [hr₃, hr₂, hr₁] at h₄; exact h₄) hds
                   · split
-                    · exact True.intro
+                    · trivial
                     · rename_i d hds
                       exact hds_wf _ _ isNeg v_m rest₃ d (by rw [hr₂, hr₁] at h₃; exact h₃) hds
                   · split
-                    · exact True.intro
+                    · trivial
                     · rename_i d hds
                       exact hds_wf _ _ isNeg v_s rest₂ d (by rw [hr₁] at h₂; exact h₂) hds
                   · split
-                    · exact True.intro
+                    · trivial
                     · rename_i d hds
                       exact hds_wf _ _ isNeg v_ms rest₁ d h₁ hds
                 · -- body = (reconstructComponents body).asString:
@@ -747,6 +636,40 @@ private theorem extract_step_chain (pfx digits suffix : String) (n : Nat)
       = (pfx.toList ++ digits.toList) ++ suffix.toList from by rw [List.append_assoc]]
   rw [List.take_left, List.take_left]
 
+private theorem extract_step_chain_pair (pfx digits suffix : String) (n : Nat)
+    (hdq : IsDurationQuantity digits)
+    (hnat : toNat?' digits = some n)
+    (hpfx_end : pfx = "" ∨ ∃ c cs, pfx.toList.reverse = c :: cs ∧ c.isDigit = false) :
+    extractTrailingDurationQuantity (pfx ++ digits ++ suffix) suffix = (n, pfx) := by
+  apply Prod.ext
+  · unfold extractTrailingDurationQuantity
+    have hew : (pfx ++ digits ++ suffix).endsWith suffix = true := by
+      simp [String.endsWith_eq_endsWith_toSlice, String.toList_append]
+      exact ⟨pfx.toList ++ digits.toList, by simp [List.append_assoc]⟩
+    simp only [hew, ite_true]
+    have hdrop_toList : ((pfx ++ digits ++ suffix).dropEnd suffix.length).toString.toList =
+        pfx.toList ++ digits.toList := by
+      simp [String.toList_append, ← String.length_toList]
+      have h1 : pfx.toList.length + (digits.toList.length + suffix.toList.length) -
+          suffix.toList.length = (pfx.toList ++ digits.toList).length := by simp; omega
+      rw [h1, show pfx.toList ++ (digits.toList ++ suffix.toList)
+          = (pfx.toList ++ digits.toList) ++ suffix.toList from by rw [List.append_assoc]]
+      exact List.take_left
+    have hall_digits : ∀ c ∈ digits.toList.reverse, Char.isDigit c = true := by
+      intro c hc; exact allDigit_of_isDurationQuantity digits hdq c (List.mem_reverse.mp hc)
+    have htw : (((pfx ++ digits ++ suffix).dropEnd suffix.length).toString.toList.reverse.takeWhile
+        Char.isDigit).reverse = digits.toList := by
+      rw [hdrop_toList, List.reverse_append]
+      rw [takeWhile_append_stop_chain hall_digits]
+      · exact List.reverse_reverse digits.toList
+      rcases hpfx_end with rfl | ⟨c, cs, hrev, hc⟩
+      · left; simp
+      · right; exact ⟨c, cs, hrev, hc⟩
+    rw [htw]
+    have hdig_eq : String.ofList digits.toList = digits := by simp
+    rw [hdig_eq, hnat]
+  · exact extract_step_chain pfx digits suffix n hdq hnat hpfx_end
+
 -- The reverse of (digits ++ suffix) starts with a non-digit char for duration suffixes.
 private theorem chunk_reverse_starts_non_digit (digits suffix : String)
     (_hdq : IsDurationQuantity digits)
@@ -754,7 +677,7 @@ private theorem chunk_reverse_starts_non_digit (digits suffix : String)
     ∃ c cs, (digits ++ suffix).toList.reverse = c :: cs ∧ c.isDigit = false := by
   rcases hsuf with rfl | rfl | rfl | rfl | rfl <;>
     simp only [String.toList_append, List.reverse_append] <;>
-    exact ⟨_, _, rfl, by native_decide⟩
+    exact ⟨_, _, rfl, by decide⟩
 
 -- Prefixing preserves the "ends with non-digit" property.
 private theorem pfx_append_chunk_reverse_non_digit (pfx digits suffix : String)
@@ -796,7 +719,7 @@ private theorem not_endsWith_ms_of_digits_s_chain (pfx digits : String)
     List.getElem_mem hlt
   have h_digit := allDigit_of_isDurationQuantity digits hdq _ h_mem
   rw [← h_m_eq] at h_digit
-  exact absurd h_digit (by native_decide)
+  exact absurd h_digit (by decide)
 
 -- A string whose last char ≠ c does not endWith the single-char string [c].
 private theorem not_endsWith_single_of_last_ne (s : String) (c : Char)
@@ -1250,7 +1173,7 @@ theorem parseDuration?_eq_duration?_of_wf (isNegative : Bool) (body : String)
           rw [← hpfx, List.reverse_append]
         rw [hrev_eq] at hdig
         cases hms_rev : ms_d.toList.reverse with
-        | nil => simp at hms_rev; exact h_ms_ne (by exact List.eq_nil_of_length_eq_zero (by simp [hms_rev]))
+        | nil => simp at hms_rev; exact h_ms_ne (List.eq_nil_of_length_eq_zero (by simp [hms_rev]))
         | cons c cs =>
           have hc_digit : Char.isDigit c = true := by
             have : c ∈ ms_d.toList.reverse := by rw [hms_rev]; exact List.Mem.head _
@@ -1612,7 +1535,7 @@ theorem parseDuration?_eq_duration?_of_wf (isNegative : Bool) (body : String)
             | none =>
               simp only [durationChunk, String.append_empty] at hew
               cases days with
-              | none => exact absurd hew (by native_decide)
+              | none => simp [String.endsWith_eq_endsWith_toSlice] at hew
               | some d_d =>
                 have h_iq := hwf_d
                 obtain ⟨hne_d, _⟩ := h_iq
@@ -1906,7 +1829,7 @@ theorem parseDuration?_eq_duration?_of_wf (isNegative : Bool) (body : String)
               cases days with
               | none =>
                 simp only [durationChunk] at hew
-                exact absurd hew (by native_decide)
+                simp [String.endsWith_eq_endsWith_toSlice] at hew
               | some d_d =>
                 simp only [durationChunk] at hew
                 have h_iq := hwf_d
@@ -2206,7 +2129,7 @@ theorem parseDuration?_eq_duration?_of_wf (isNegative : Bool) (body : String)
                 have hdc : durationChunk none "d" = "" := rfl
                 rw [hdc] at hrest₄
                 rw [hrest₄] at hew
-                exact absurd hew (by native_decide)
+                simp [String.endsWith_eq_endsWith_toSlice] at hew
               | some d_d => exact ⟨d_d, rfl⟩
             obtain ⟨d_d, hdays_eq⟩ := hdays_some
             rw [hdays_eq] at hrest₄ hwf_d
@@ -2269,8 +2192,7 @@ theorem parseDuration?_eq_duration?_of_wf (isNegative : Bool) (body : String)
             obtain ⟨v_d, rest₅⟩ := p₅; simp only []
             have hrest₅_empty : rest₅ = "" :=
               extract_chain_rest_empty_of_wf isNegative body h h₁ h₂ h₃ h₄ h₅
-            have hrest₅_isEmpty : rest₅.isEmpty = true := by
-              rw [String.isEmpty_iff]; exact hrest₅_empty
+            have hrest₅_isEmpty : rest₅.isEmpty = true := String.isEmpty_iff.mpr hrest₅_empty
             simp only [hrest₅_isEmpty, ite_true]
             -- Goal: duration? (v_d + v_h + v_m + v_s + v_ms) =
             --       duration? (computeSignedDurationBodyValue isNegative body)
@@ -2320,19 +2242,11 @@ theorem parseDuration?_eq_none_iff (isNegative : Bool) (body : String) :
       ¬ IsWfDurationBody body ∨
         (computeSignedDurationBodyValue isNegative body < Int64.MIN ∨
           computeSignedDurationBodyValue isNegative body > Int64.MAX) := by
-  constructor
-  · intro hparse
-    by_cases hwf : IsWfDurationBody body
-    · right
-      exact (parseDuration?_eq_none_iff_overflow_of_wf isNegative body hwf).mp hparse
-    · left
-      exact hwf
-  · intro h
-    rcases h with hnot_wf | hoverflow
-    · exact parseDuration?_none_of_not_wf isNegative body hnot_wf
-    · by_cases hwf : IsWfDurationBody body
-      · exact (parseDuration?_eq_none_iff_overflow_of_wf isNegative body hwf).mpr hoverflow
-      · exact parseDuration?_none_of_not_wf isNegative body hwf
+  by_cases hwf : IsWfDurationBody body
+  · rw [parseDuration?_eq_none_iff_overflow_of_wf isNegative body hwf]
+    simp [hwf]
+  · rw [parseDuration?_none_of_not_wf isNegative body hwf]
+    simp [hwf]
 
 
 /-- `IsWfDurationStr` on a full duration string is equivalent to `IsWfDurationBody` on its body
@@ -2349,15 +2263,13 @@ theorem wf_str_iff_signed_body (str : String) :
       simp
     simp [hsplit]
     constructor
-    · intro hstr
-      rcases hstr with hbody | ⟨body, hstr_eq, hbody⟩
+    · rintro (hbody | ⟨body, hstr_eq, hbody⟩)
       · exact False.elim ((duration_body_front_ne_dash str hbody) hfront)
       · subst str
         simpa [dash_append_drop_one_copy] using hbody
     · intro hbody
-      right
-      exact ⟨(str.drop 1).copy, string_eq_dash_append_drop_one_of_front_eq_dash str hfront,
-        hbody⟩
+      exact Or.inr ⟨(str.drop 1).copy,
+        string_eq_dash_append_drop_one_of_front_eq_dash str hfront, hbody⟩
   · have hsplit : isNegativeDuration str = (false, str) := by
       unfold isNegativeDuration
       split
@@ -2365,92 +2277,251 @@ theorem wf_str_iff_signed_body (str : String) :
       · rfl
     simp [hsplit]
     constructor
-    · intro hstr
-      rcases hstr with hbody | ⟨body, hstr_eq, _⟩
+    · rintro (hbody | ⟨body, hstr_eq, _⟩)
       · exact hbody
       · exact False.elim (hfront (by
           subst str
           exact dash_append_front_eq_dash body))
     · intro hbody
-      left
-      exact hbody
+      exact Or.inl hbody
 
 theorem compute_value_eq_signed_body_value (str : String) (_hwf : IsWfDurationStr str) :
     computeDurationValue str =
       let (isNegative, body) := isNegativeDuration str
-      computeSignedDurationBodyValue isNegative body := by
+      computeSignedDurationBodyValue isNegative body := rfl
+
+theorem duration?_some_toInt (value : Int) (d : Duration)
+    (h : duration? value = some d) :
+    d.val.toInt = value := by
+  unfold duration? at h
+  cases hv : Int64.ofInt? value with
+  | none =>
+    simp [hv] at h
+  | some i =>
+    simp [hv] at h
+    subst h
+    exact int64_ofInt?_toInt value i hv
+
+theorem Int64.sub?_add?_inverse (a b c : Int64)
+    (h : Int64.add? a b = some c) :
+    Int64.sub? c a = some b := by
+  unfold Int64.add? at h
+  unfold Int64.sub?
+  cases hs : Int64.ofInt? (a.toInt + b.toInt) with
+  | none =>
+    simp [hs] at h
+  | some i =>
+    simp [hs] at h
+    subst h
+    have hi : i.toInt = a.toInt + b.toInt := int64_ofInt?_toInt (a.toInt + b.toInt) i hs
+    rw [hi]
+    have hsub : a.toInt + b.toInt - a.toInt = b.toInt := by omega
+    rw [hsub]
+    exact Int64.ofInt?_toInt b
+
+-- ═══════════════════════════════════════════════════════════════════════════════
+-- ROUNDTRIP: Duration.parse ∘ Duration.toString = some
+-- ═══════════════════════════════════════════════════════════════════════════════
+
+private theorem toNat?'_toString (n : Nat) : toNat?' (toString n) = some n := by
+  unfold toNat?'
+  have hno_us : (toString n).contains '_' = false := by
+    have h : ¬ ('_' ∈ (toString n).toList) := by
+      rw [Nat.toString_eq_repr, Nat.toList_repr]
+      exact Nat.underscore_not_in_toDigits
+    simp [String.contains]
+  rw [hno_us]
+  simp [Nat.toString_eq_repr]
+
+private theorem toNat?'_repr (n : Nat) : toNat?' (Nat.repr n) = some n := by
+  simpa [Nat.toString_eq_repr] using toNat?'_toString n
+
+theorem duration?_of_val_toInt (d : Duration) :
+    duration? d.val.toInt = some d := by
+  unfold duration?
+  rw [Int64.ofInt?_toInt]
   rfl
 
--- ═══════════════════════════════════════════════════════════════════════════════
--- MAIN THEOREM: Complete characterization of Duration.parse failure
--- ═══════════════════════════════════════════════════════════════════════════════
+private theorem toString_ne_empty (n : Nat) : toString n ≠ "" := by
+  intro heq
+  have : (toString n).toList = [] := by simp [heq]
+  rw [Nat.toString_eq_repr, Nat.toList_repr] at this
+  exact Nat.toDigits_ne_nil this
 
-/-- `Duration.parse` returns `none` iff the input is not well-formed (`¬ IsWfDurationStr`)
-or the computed millisecond value overflows Int64. -/
-public theorem Duration.parse_eq_none_iff (str : String) :
-    Duration.parse str = none ↔
-    ¬ IsWfDurationStr str ∨
-      (computeDurationValue str < Int64.MIN ∨ computeDurationValue str > Int64.MAX) := by
-  unfold Duration.parse
-  cases hsign : isNegativeDuration str with
-  | mk isNegative body =>
-    rw [parseDuration?_eq_none_iff]
-    have hwf := wf_str_iff_signed_body str
-    simp only [hsign] at hwf
-    constructor
-    · intro h
-      rcases h with hbody | hoverflow
-      · left
-        intro hstr
-        exact hbody (hwf.mp hstr)
-      · right
-        have hvalue := compute_value_eq_signed_body_value str
-        simp only [hsign] at hvalue
-        rw [show computeDurationValue str = computeSignedDurationBodyValue isNegative body from by
-          unfold computeDurationValue; simp [hsign]]
-        exact hoverflow
-    · intro h
-      rcases h with hstr | hoverflow
-      · left
-        intro hbody
-        exact hstr (hwf.mpr hbody)
-      · right
-        rw [show computeDurationValue str = computeSignedDurationBodyValue isNegative body from by
-          unfold computeDurationValue; simp [hsign]] at hoverflow
-        exact hoverflow
+private theorem isDurationQuantity_toString (n : Nat) :
+    IsDurationQuantity (toString n) := by
+  refine ⟨toString_ne_empty n, ?_⟩
+  rw [toNat?'_toString]
+  simp
 
-/-- Parsing a negated duration string negates the underlying value. -/
-public theorem Duration.parse_neg (s : String) (d : Datetime.Duration)
-    (hpos : ¬ s.startsWith "-")
-    (h : Datetime.Duration.parse s = some d) :
-    Datetime.Duration.parse ("-" ++ s) = Datetime.duration? (-d.val.toInt) := by
-  sorry
+private theorem isDurationQuantity_repr (n : Nat) :
+    IsDurationQuantity (Nat.repr n) := by
+  simpa [Nat.toString_eq_repr] using isDurationQuantity_toString n
 
-/-- `offset` and `durationSince` are inverses: adding a duration then computing
-    the difference gives back the same duration. -/
-public theorem offset_durationSince_inverse (dt : Datetime) (dur : Datetime.Duration) (dt' : Datetime)
-    (h : Datetime.offset dt dur = some dt') :
-    Datetime.durationSince dt' dt = some dur := by
-  sorry
+private theorem repr_zero_ms : Nat.repr 0 ++ "ms" = "0ms" := by
+  apply String.ext
+  simp [Nat.toList_repr]
 
-/-! Repr examples for parsed durations.
+private theorem canonicalDurationComponents_nonempty
+    (days hours minutes seconds ms : Nat) :
+    (canonicalDurationComponents days hours minutes seconds ms).nonempty := by
+  simp [canonicalDurationComponents, DurationComponents.nonempty]
 
-These are examples to run in the IDE when exploring the derived `Repr` output. They are
-left as comments because compiling this module with Lake cannot natively execute the
-external `toNat?'` helper used by `Duration.parse`.
+private theorem canonicalDurationComponents_quantitiesWf
+    (days hours minutes seconds ms : Nat) :
+    (canonicalDurationComponents days hours minutes seconds ms).quantitiesWf := by
+  simp [canonicalDurationComponents, DurationComponents.quantitiesWf, IsOptionalDurationQuantity,
+    isDurationQuantity_repr]
 
-#eval reprStr (Duration.parse "1ms")
-#eval reprStr (Duration.parse "2s")
-#eval reprStr (Duration.parse "3m2s1ms")
-#eval reprStr (Duration.parse "1d2h3m4s5ms")
-#eval reprStr (Duration.parse "-1d2h3m4s5ms")
+private theorem canonicalDurationComponents_asString
+    (days hours minutes seconds ms : Nat) :
+    (canonicalDurationComponents days hours minutes seconds ms).asString =
+      canonicalDurationBody days hours minutes seconds ms := by
+  unfold canonicalDurationComponents DurationComponents.asString canonicalDurationBody
+    durationComponent durationChunk
+  simp [String.append_assoc]
 
-#eval reprStr (Duration.parse "")
-#eval reprStr (Duration.parse "1s2m")
-#eval reprStr (Duration.parse "1x")
+theorem canonicalDurationBody_wf (days hours minutes seconds ms : Nat) :
+    IsWfDurationBody (canonicalDurationBody days hours minutes seconds ms) :=
+  ⟨canonicalDurationComponents days hours minutes seconds ms,
+    canonicalDurationComponents_nonempty days hours minutes seconds ms,
+    canonicalDurationComponents_quantitiesWf days hours minutes seconds ms,
+    (canonicalDurationComponents_asString days hours minutes seconds ms).symm⟩
 
-#eval match Duration.parse "1d2h3m4s5ms" with
-  | some d => reprStr d
-  | none => "parse failed"
-```
--/
+theorem isNegativeDuration_neg_body (body : String) :
+    isNegativeDuration ("-" ++ body) = (true, body) := by
+  unfold isNegativeDuration
+  rw [dash_append_front_eq_dash]
+  simp [dash_append_drop_one_copy]
+
+theorem isNegativeDuration_canonical_body (body : String) (hfront : body.front ≠ '-') :
+    isNegativeDuration body = (false, body) := by
+  unfold isNegativeDuration
+  split
+  · contradiction
+  · rfl
+
+theorem canonicalDurationBody_value (days hours minutes seconds ms : Nat) :
+    computeDurationBodyValue (canonicalDurationBody days hours minutes seconds ms) =
+      (days : Int) * MILLISECONDS_PER_DAY +
+      (hours : Int) * MILLISECONDS_PER_HOUR +
+      (minutes : Int) * MILLISECONDS_PER_MINUTE +
+      (seconds : Int) * MILLISECONDS_PER_SECOND +
+      (ms : Int) := by
+  have hms : extractTrailingDurationQuantity
+      (canonicalDurationBody days hours minutes seconds ms) "ms" =
+      (ms, durationComponent days "d" ++ durationComponent hours "h" ++
+        durationComponent minutes "m" ++ durationComponent seconds "s") := by
+    unfold canonicalDurationBody durationComponent
+    have hpfx : ((toString days ++ "d") ++ (toString hours ++ "h") ++
+        (toString minutes ++ "m") ++ (toString seconds ++ "s")).toList.reverse =
+        ((toString days ++ "d") ++ (toString hours ++ "h") ++
+          (toString minutes ++ "m") ++ (toString seconds ++ "s")).toList.reverse := rfl
+    have hpfx_end :
+        ((toString days ++ "d") ++ (toString hours ++ "h") ++
+          (toString minutes ++ "m") ++ (toString seconds ++ "s")) = "" ∨
+        ∃ c cs, (((toString days ++ "d") ++ (toString hours ++ "h") ++
+          (toString minutes ++ "m") ++ (toString seconds ++ "s")).toList.reverse =
+          c :: cs ∧ c.isDigit = false) := by
+      right
+      exact pfx_append_chunk_reverse_non_digit
+          ((toString days ++ "d") ++ (toString hours ++ "h") ++ (toString minutes ++ "m"))
+          (toString seconds) "s" (isDurationQuantity_toString seconds)
+          (Or.inr (Or.inr (Or.inr (Or.inl rfl))))
+    simpa [String.append_assoc] using
+      extract_step_chain_pair
+        ((toString days ++ "d") ++ (toString hours ++ "h") ++
+          (toString minutes ++ "m") ++ (toString seconds ++ "s"))
+        (toString ms) "ms" ms (isDurationQuantity_toString ms) (toNat?'_toString ms)
+        hpfx_end
+  have hs : extractTrailingDurationQuantity
+      (durationComponent days "d" ++ durationComponent hours "h" ++
+        durationComponent minutes "m" ++ durationComponent seconds "s") "s" =
+      (seconds, durationComponent days "d" ++ durationComponent hours "h" ++
+        durationComponent minutes "m") := by
+    unfold durationComponent
+    have hpfx_end :
+        ((toString days ++ "d") ++ (toString hours ++ "h") ++
+          (toString minutes ++ "m")) = "" ∨
+        ∃ c cs, (((toString days ++ "d") ++ (toString hours ++ "h") ++
+          (toString minutes ++ "m")).toList.reverse = c :: cs ∧ c.isDigit = false) := by
+      right
+      exact pfx_append_chunk_reverse_non_digit
+          ((toString days ++ "d") ++ (toString hours ++ "h"))
+          (toString minutes) "m" (isDurationQuantity_toString minutes)
+          (Or.inr (Or.inr (Or.inl rfl)))
+    simpa [String.append_assoc] using
+      extract_step_chain_pair
+        ((toString days ++ "d") ++ (toString hours ++ "h") ++ (toString minutes ++ "m"))
+        (toString seconds) "s" seconds (isDurationQuantity_toString seconds)
+        (toNat?'_toString seconds) hpfx_end
+  have hm : extractTrailingDurationQuantity
+      (durationComponent days "d" ++ durationComponent hours "h" ++ durationComponent minutes "m")
+      "m" =
+      (minutes, durationComponent days "d" ++ durationComponent hours "h") := by
+    unfold durationComponent
+    have hpfx_end :
+        ((toString days ++ "d") ++ (toString hours ++ "h")) = "" ∨
+        ∃ c cs, (((toString days ++ "d") ++ (toString hours ++ "h")).toList.reverse =
+          c :: cs ∧ c.isDigit = false) := by
+      right
+      exact pfx_append_chunk_reverse_non_digit (toString days ++ "d")
+          (toString hours) "h" (isDurationQuantity_toString hours)
+          (Or.inr (Or.inl rfl))
+    simpa [String.append_assoc] using
+      extract_step_chain_pair ((toString days ++ "d") ++ (toString hours ++ "h"))
+        (toString minutes) "m" minutes (isDurationQuantity_toString minutes)
+        (toNat?'_toString minutes) hpfx_end
+  have hh : extractTrailingDurationQuantity
+      (durationComponent days "d" ++ durationComponent hours "h") "h" =
+      (hours, durationComponent days "d") := by
+    unfold durationComponent
+    have hpfx_end :
+        (toString days ++ "d") = "" ∨
+        ∃ c cs, (toString days ++ "d").toList.reverse = c :: cs ∧ c.isDigit = false := by
+      right
+      exact pfx_append_chunk_reverse_non_digit "" (toString days) "d"
+          (isDurationQuantity_toString days) (Or.inl rfl)
+    simpa [String.append_assoc] using
+      extract_step_chain_pair (toString days ++ "d") (toString hours) "h" hours
+        (isDurationQuantity_toString hours) (toNat?'_toString hours) hpfx_end
+  have hd : extractTrailingDurationQuantity (durationComponent days "d") "d" = (days, "") := by
+    unfold durationComponent
+    simpa using extract_step_chain_pair "" (toString days) "d" days
+      (isDurationQuantity_toString days) (toNat?'_toString days) (Or.inl rfl)
+  unfold computeDurationBodyValue
+  simp [hms, hs, hm, hh, hd]
+
+private theorem durationParts_value_nat (n : Nat) :
+    n / 86400000 * 86400000 +
+        n % 86400000 / 3600000 * 3600000 +
+      n % 86400000 % 3600000 / 60000 * 60000 +
+    n % 86400000 % 3600000 % 60000 / 1000 * 1000 +
+    n % 86400000 % 3600000 % 60000 % 1000 = n := by
+  have h₁ := Nat.div_add_mod n 86400000
+  have h₂ := Nat.div_add_mod (n % 86400000) 3600000
+  have h₃ := Nat.div_add_mod (n % 86400000 % 3600000) 60000
+  have h₄ := Nat.div_add_mod (n % 86400000 % 3600000 % 60000) 1000
+  omega
+
+theorem durationParts_value_int (n : Nat) :
+    (↑(n / MILLISECONDS_PER_DAY.toNat) : Int) * MILLISECONDS_PER_DAY +
+        (↑(n % MILLISECONDS_PER_DAY.toNat / MILLISECONDS_PER_HOUR.toNat) : Int) *
+          MILLISECONDS_PER_HOUR +
+      (↑(n % MILLISECONDS_PER_DAY.toNat % MILLISECONDS_PER_HOUR.toNat /
+          MILLISECONDS_PER_MINUTE.toNat) : Int) *
+        MILLISECONDS_PER_MINUTE +
+    (↑(n % MILLISECONDS_PER_DAY.toNat % MILLISECONDS_PER_HOUR.toNat %
+        MILLISECONDS_PER_MINUTE.toNat / MILLISECONDS_PER_SECOND.toNat) : Int) *
+      MILLISECONDS_PER_SECOND +
+    (↑(n % MILLISECONDS_PER_DAY.toNat % MILLISECONDS_PER_HOUR.toNat %
+        MILLISECONDS_PER_MINUTE.toNat % MILLISECONDS_PER_SECOND.toNat) : Int) =
+      n := by
+  change
+    (↑(n / 86400000) : Int) * 86400000 +
+        (↑(n % 86400000 / 3600000) : Int) * 3600000 +
+      (↑(n % 86400000 % 3600000 / 60000) : Int) * 60000 +
+    (↑(n % 86400000 % 3600000 % 60000 / 1000) : Int) * 1000 +
+    (↑(n % 86400000 % 3600000 % 60000 % 1000) : Int) = n
+  have h := durationParts_value_nat n
+  omega
