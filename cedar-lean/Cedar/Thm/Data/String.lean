@@ -1,6 +1,9 @@
-import Std.Data.String
-import Batteries.Data.String
-import Cedar.Spec.Ext.Util
+module
+
+public import Std.Data.String
+public import Batteries.Data.String
+public import Cedar.Spec.Ext.Util
+import all Cedar.Spec.Ext.Util
 
 /-- If no element of `l` satisfies `P`, then `splitOnPPrepend P l acc` returns
     the single segment `[acc.reverse ++ l]` (the accumulator is prepended in reverse). -/
@@ -8,11 +11,10 @@ theorem splitOnPPrepend_no_sep (P : α → Bool) (l acc : List α)
     (h : ∀ x ∈ l, P x = false) :
     List.splitOnPPrepend P l acc = [(acc.reverse ++ l)] := by
   induction l generalizing acc with
-  | nil => rw [List.splitOnPPrepend.eq_def]; simp
+  | nil => simp
   | cons a t ih =>
-    rw [List.splitOnPPrepend.eq_def]
     have ha : P a = false := h a (List.mem_cons.mpr (.inl rfl))
-    simp only [ha]
+    rw [List.splitOnPPrepend_cons_neg ha]
     rw [ih (a :: acc) (fun x hx => h x (List.mem_cons.mpr (.inr hx)))]
     simp [List.reverse_cons, List.append_assoc]
 
@@ -23,14 +25,13 @@ theorem splitOnPPrepend_one_sep (P : α → Bool) (as bs acc : List α) (sep : �
     List.splitOnPPrepend P (as ++ sep :: bs) acc = (acc.reverse ++ as) :: [bs] := by
   induction as generalizing acc with
   | nil =>
-    rw [List.nil_append, List.splitOnPPrepend.eq_def]
-    simp only [hsep, ite_true]
-    rw [splitOnPPrepend_no_sep P bs [] hbs]; simp
+    rw [List.nil_append, List.splitOnPPrepend_cons_eq_if, hsep]
+    rw [List.splitOnP_eq_splitOnPPrepend, splitOnPPrepend_no_sep P bs [] hbs]
+    simp
   | cons a t ih =>
     simp only [List.cons_append]
-    rw [List.splitOnPPrepend.eq_def]
     have ha : P a = false := has a (List.mem_cons.mpr (.inl rfl))
-    simp only [ha]
+    rw [List.splitOnPPrepend_cons_neg ha]
     rw [ih (a :: acc) (fun x hx => has x (List.mem_cons.mpr (.inr hx)))]
     simp [List.reverse_cons, List.append_assoc]
 
@@ -41,7 +42,7 @@ theorem splitToList_eq (s₁ s₂ : String) (p : Char → Bool) (sep : Char)
     (s₁ ++ String.singleton sep ++ s₂).splitToList p = [s₁, s₂] := by
   rw [String.splitToList_of_valid]
   simp [String.toList_append, List.append_assoc]
-  change List.map String.ofList (List.splitOnPPrepend p (s₁.toList ++ sep :: s₂.toList) []) = _
+  rw [List.splitOnP_eq_splitOnPPrepend]
   rw [splitOnPPrepend_one_sep p s₁.toList s₂.toList [] sep hsep h₁ h₂]
   simp
 
@@ -85,10 +86,11 @@ theorem foldl_no_underscore_eq (l : List Char) (acc : Nat)
 theorem foldl_eq_ofDigitChars (l : List Char) (acc : Nat) :
     List.foldl (fun n c => n * 10 + (c.toNat - 48)) acc l =
     Nat.ofDigitChars 10 l acc := by
+  rw [Nat.ofDigitChars_eq_foldl]
   induction l generalizing acc with
   | nil => rfl
   | cons a t ih =>
-    simp only [List.foldl, Nat.ofDigitChars, show Char.toNat '0' = 48 from by rfl]
+    simp only [List.foldl, show Char.toNat '0' = 48 from by rfl]
     rw [Nat.mul_comm 10 acc]
     exact ih _
 
@@ -107,4 +109,7 @@ theorem toNat?'_isSome_length_pos (s : String) (h : (toNat?' s).isSome) : s.leng
   by_contra hlen
   simp at hlen
   subst hlen
-  simp [toNat?', String.toNat?, String.Slice.toNat?, String.Slice.isNat] at h
+  have hcontains : ("".contains '_') = false := by simp
+  simp only [toNat?', hcontains, Bool.false_eq_true, ↓reduceIte] at h
+  rw [String.isSome_toNat?, String.isNat_iff] at h
+  exact h.1 rfl
