@@ -39,6 +39,9 @@ A string is _valid_ if and only if it satisfies both the grammar and the constra
 
 ```lean -show
 open Cedar.Spec.Ext Cedar.Spec.Ext.Decimal
+-- `DECIMAL_DIGITS` is private to the spec; redeclare it here so the
+-- illustrative code blocks below elaborate.
+abbrev DECIMAL_DIGITS : Nat := 4
 ```
 
 ```lean
@@ -86,36 +89,75 @@ none
 
 We formalize the validity of input string by the predicate `IsWfStr` (well-formed syntax of the grammar) and the function `computeValue` (value function).
 
+`IsWfStr` is a direct transcription of the grammar's character-level productions. The building block is `IsDigits`, which captures `Digit⁺` — a non-empty string all of whose characters satisfy `Char.isDigit`:
+
+```lean -show
+-- The real `IsDigits`/`IsWfInt` are already in scope; illustrate them in a
+-- local namespace so the definitions below refer to each other unambiguously.
+namespace DocSpec
+```
+
+```lean
+def IsDigits (s : String) : Prop :=
+  0 < s.length ∧ ∀ c ∈ s.toList, c.isDigit = true
+```
+
+The integer part follows the grammar's `Integer ::= ['-'] Digit⁺` — either a bare digit string, or a `'-'` followed by one. Because the second branch still demands `IsDigits t`, a bare `"-"` is rejected structurally, without a separate side condition:
+
+```lean
+def IsWfInt (s : String) : Prop :=
+  IsDigits s ∨ ∃ t, s = "-" ++ t ∧ IsDigits t
+```
+
+Well-formedness of the whole string then reads straight off the grammar — split on `.`, an `Integer` on the left, and a `Digit{1,4}` fraction on the right:
+
 {docstring IsWfStr}
 
 ```lean
 def IsWfStr (s : String) : Prop :=
   ∃ left right,
     s.splitToList (· = '.') = [left, right] ∧
-    left ≠ "-" ∧
-    0 < right.length ∧
-    right.length ≤ DECIMAL_DIGITS ∧
-    (toInt?' left).isSome ∧
-    (toNat?' right).isSome
+    IsWfInt left ∧
+    IsDigits right ∧
+    right.length ≤ DECIMAL_DIGITS
 ```
+
+```lean -show
+end DocSpec
+```
+
+Note that this definition talks only about digit characters — it does not mention the string-to-number parsers `toInt?'`/`toNat?'`. That keeps the specification faithful to the grammar and independent of any parsing implementation. The `computeValue` function below and `Decimal.parse` do use those parsers to extract the numeric value; a family of _bridge lemmas_ (e.g. `toInt?'_isSome_of_isWfInt` and its converse `isWfInt_of_toInt?'_isSome`) connect the two views, proving that a digit string is exactly one the parser accepts.
 
 {docstring computeValue}
 
 ```lean
-def computeValue (s : String) : Int :=
+def computeValue (s : String) : Option Int :=
   match s.splitToList (· = '.') with
   | [left, right] =>
-    let rlen := right.length
     match toInt?' left, toNat?' right with
       | .some l, .some r =>
-        let l' := l * (Int.pow 10 DECIMAL_DIGITS)
-        let r' := r * (Int.pow 10 (DECIMAL_DIGITS - rlen))
-        if !left.startsWith "-" then l' + r' else l' - r'
-      | _, _ => 0
-  | _ => 0
+        let sign : Int := if left.startsWith "-" then -1 else 1
+        some (l * Int.pow 10 DECIMAL_DIGITS
+          + sign * (r : Int) * Int.pow 10 (DECIMAL_DIGITS - right.length))
+      | _, _ => none
+  | _ => none
 ```
 
-Together they give a complete characterization of parsing failure:
+This is a literal transcription of the grammar's value function: `int(Integer) × 10⁴` for the integer part, plus `sign × nat(Fraction) × 10^(4 − |Fraction|)` for the fraction, where `sign = −1` when the integer starts with `'-'`. It returns `none` when the string does not split into an integer part and a fraction that the primitives accept.
+
+# Soundness and Completeness
+
+The parser is characterized by two complementary guarantees stated in terms of the previous formal definitions.
+
+_Soundness_ says that whenever parsing succeeds, the input was genuinely valid: it is well-formed, `computeValue` yields exactly the returned decimal's value, and that value lies within the `Int64` range.
+
+{docstring parse_sound}
+
+_Completeness_ is the converse: every well-formed string whose computed value is `some d.toInt` is accepted as that decimal. (The range constraint is implicit here — `d.toInt` is always in range.)
+
+{docstring parse_complete}
+
+Together they also give a complete characterization of parsing failure — the parser rejects exactly those strings that are malformed or whose computed value overflows the `Int64` range:
 
 {docstring parse_eq_none_iff}
 
@@ -157,12 +199,14 @@ For example, the canonical string representation of a decimal with internal valu
 
 # Roundtrip Theorem
 
-The central correctness guarantee: parsing the canonical string representation of any decimal recovers the original value.
+Parsing the canonical string representation of any decimal recovers the original value. This is the headline user-facing property — `parse` and `toString` are mutually inverse on decimals — and it is what underpins `toString_injective` above.
 
 {docstring parse_toString_roundtrip}
 
-This is proved via two intermediate results:
+It is a direct corollary of completeness: canonical strings are just a special case of well-formed inputs, so we only need to check that `toString d` _is_ well-formed and that its computed value is `d.toInt`, then hand both to `parse_complete`.
 
 {docstring toString_isWfStr}
 
 {docstring computeValue_toString}
+
+Though only a corollary, roundtrip guards against parser bugs on _valid_ inputs — cases soundness and the failure characterization, aimed at rejecting _invalid_ inputs, never exercise. For example, every decimal in `(-1, 0)` serializes to a `-0.xxxx` string (value `-5000` becomes `"-0.5000"`), so roundtrip must parse these back exactly. An earlier parser derived the sign from the integer part's value, where `int("-0") = 0` dropped the negative and turned `-0.5000` into `+0.5000`. Because the sign is instead keyed on a leading `'-'`, this bug would make roundtrip unprovable — the proof rules it out.
