@@ -1,10 +1,12 @@
 module
 
 public import Cedar.Spec.Ext.Datetime
+public import Cedar.Thm.Data.String
 
 import all Cedar.Data.Int64
 import all Cedar.Spec.Ext.Util
 import all Cedar.Spec.Ext.Datetime
+import all Cedar.Thm.Data.String
 import all Init.Data.String.Search
 import Std.Data.String.ToNat
 
@@ -15,11 +17,6 @@ open Datetime
 /-- Apply the duration sign to a natural number: negates if `isNegative`, otherwise coerces. -/
 public def signedQuantity (isNegative : Bool) (n : Nat) : Int :=
   if isNegative then Int.negOfNat n else Int.ofNat n
-
-/-- A duration quantity token: a nonempty string of decimal digits parseable as a natural number.
-    Corresponds to the `Digit⁺` production in the duration grammar. -/
-public def IsDurationQuantity (digits : String) : Prop :=
-  digits ≠ "" ∧ (toNat?' digits).isSome
 
 /-- Render an optional duration component as its string representation.
     `none` produces `""`, `some digits` produces `digits ++ suffix`. -/
@@ -32,10 +29,11 @@ public def durationChunk (digits? : Option String) (suffix : String) : String :=
 public def durationComponent (n : Nat) (suffix : String) : String :=
   toString n ++ suffix
 
-/-- Lift `IsDurationQuantity` to optional components: `none` is trivially valid. -/
+/-- Lift the `Digit⁺` quantity-token predicate (`IsDigits`) to optional components:
+    `none` is trivially valid. -/
 public def IsOptionalDurationQuantity : Option String → Prop
   | none => True
-  | some digits => IsDurationQuantity digits
+  | some digits => IsDigits digits
 
 /-- The five optional digit-string components of a duration body, one per time unit.
     Each field holds `none` (unit absent) or `some digits` (unit present with that value). -/
