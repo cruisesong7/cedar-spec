@@ -13,6 +13,14 @@ namespace Cedar.Thm.Duration
 open Cedar.Spec.Ext
 open Datetime
 
+/-! ============================================================================================
+    # Duration parser lemmas
+
+    Duration quantity tokens are the `Digit⁺` strings characterized by `IsDigits`; the
+    `IsDigits.ne_empty` / `IsDigits.toNat?'_isSome` / `IsDigits.all_isDigit` projections (in
+    `Cedar.Thm.Data.String`) recover the facts these proofs consume.
+    ============================================================================================ -/
+
 /-- `duration?` fails exactly when the value lies outside the Int64 range. -/
 theorem duration?_eq_none_iff_overflow (value : Int) :
     duration? value = none ↔ value < Int64.MIN ∨ value > Int64.MAX := by
@@ -44,7 +52,7 @@ private theorem parseUnit?_eq_norm (isNeg : Bool) (str suffix : String) :
   split
   · have h₁ : (str.dropEnd suffix.length).copy.toList =
         (str.dropEnd suffix.length).toString.toList := by
-      congr 1; exact (congrFun String.Slice.toString_eq _).symm
+      congr 1
     have h₂ : ∀ m : Nat, ((str.dropEnd suffix.length).dropEnd m).copy =
         ((str.dropEnd suffix.length).toString.dropEnd m).toString := by
       intro m; apply String.ext; simp
@@ -95,7 +103,7 @@ private theorem parseUnit?_success_rest (isNeg : Bool) (s suffix : String)
           rw [h.2.2.symm]; apply String.ext; simp
 
 -- ═══════════════════════════════════════════════════════════════════════════════
--- String-level lemmas about IsDurationQuantity and suffix interactions
+-- String-level lemmas about IsDigits and suffix interactions
 -- ═══════════════════════════════════════════════════════════════════════════════
 
 -- Reconstruct a string starting with '-' from its drop-1.
@@ -143,10 +151,9 @@ private theorem toNat?'_some_front_ne_dash (digits : String) (n : Nat)
       · contradiction
 
 private theorem duration_quantity_front_ne_dash (digits : String)
-    (h : IsDurationQuantity digits) :
+    (h : IsDigits digits) :
     digits.front ≠ '-' := by
-  obtain ⟨_, hsome⟩ := h
-  obtain ⟨n, hnat⟩ := Option.isSome_iff_exists.mp hsome
+  obtain ⟨n, hnat⟩ := Option.isSome_iff_exists.mp h.toNat?'_isSome
   exact toNat?'_some_front_ne_dash digits n hnat
 
 private theorem front_append_of_ne_empty (s t : String) (h : s ≠ "") :
@@ -172,38 +179,25 @@ theorem duration_body_front_ne_dash (body : String)
         · rcases milliseconds with _ | ms
           · simp at hne
           · simp only [durationChunk, String.empty_append]
-            rw [front_append_of_ne_empty ms _ hwf_ms.1]
+            rw [front_append_of_ne_empty ms _ hwf_ms.ne_empty]
             exact duration_quantity_front_ne_dash ms hwf_ms
         · simp only [durationChunk, String.empty_append, String.append_assoc]
-          rw [front_append_of_ne_empty s _ hwf_s.1]
+          rw [front_append_of_ne_empty s _ hwf_s.ne_empty]
           exact duration_quantity_front_ne_dash s hwf_s
       · simp only [durationChunk, String.empty_append, String.append_assoc]
-        rw [front_append_of_ne_empty m _ hwf_m.1]
+        rw [front_append_of_ne_empty m _ hwf_m.ne_empty]
         exact duration_quantity_front_ne_dash m hwf_m
     · simp only [durationChunk, String.empty_append, String.append_assoc]
-      rw [front_append_of_ne_empty hr _ hwf_h.1]
+      rw [front_append_of_ne_empty hr _ hwf_h.ne_empty]
       exact duration_quantity_front_ne_dash hr hwf_h
   · simp only [durationChunk, String.append_assoc]
-    rw [front_append_of_ne_empty d _ hwf_d.1]
+    rw [front_append_of_ne_empty d _ hwf_d.ne_empty]
     exact duration_quantity_front_ne_dash d hwf_d
 
 -- All characters in a duration-quantity string are digits.
 private theorem allDigit_of_isDurationQuantity (d : String)
-    (h : IsDurationQuantity d) :
-    ∀ c ∈ d.toList, Char.isDigit c = true := by
-  obtain ⟨_, hsome⟩ := h
-  obtain ⟨n, hn⟩ := Option.isSome_iff_exists.mp hsome
-  unfold toNat?' at hn
-  split at hn
-  · simp at hn
-  · rename_i hno_und
-    have hisNat : d.isNat = true := String.isNat_of_toNat?_eq_some hn
-    rw [String.isNat_iff] at hisNat
-    obtain ⟨_, hall, _, _, _⟩ := hisNat
-    intro c hc
-    rcases hall c hc with hdig | hund
-    · exact hdig
-    · exfalso; apply hno_und; subst c; simp; exact hc
+    (h : IsDigits d) :
+    ∀ c ∈ d.toList, Char.isDigit c = true := h.all_isDigit
 
 -- ═══════════════════════════════════════════════════════════════════════════════
 -- Main theorem 1: parseDuration? on well-formed input
@@ -270,12 +264,12 @@ private def digitStr_of_parseUnit? (str suffix : String) : Option String :=
     else some (String.ofList digits)
   else none
 
--- When parseUnit? succeeds and the suffix was present, digitStr gives a valid IsDurationQuantity.
+-- When parseUnit? succeeds and the suffix was present, digitStr gives a valid IsDigits.
 private theorem isDurationQuantity_of_parseUnit?_endsWith (isNeg : Bool) (str suffix : String)
     (v : Int) (rest : String)
     (h : parseUnit? isNeg str suffix = some (v, rest))
     (h_endsWith : str.endsWith suffix = true) :
-    ∃ digits, digitStr_of_parseUnit? str suffix = some digits ∧ IsDurationQuantity digits := by
+    ∃ digits, digitStr_of_parseUnit? str suffix = some digits ∧ IsDigits digits := by
   unfold parseUnit? at h
   simp only [h_endsWith, ite_true] at h
   unfold digitStr_of_parseUnit?
@@ -283,7 +277,7 @@ private theorem isDurationQuantity_of_parseUnit?_endsWith (isNeg : Bool) (str su
   -- Relate .copy to .toString so both computations share the same digit list.
   have hcopy_eq : (str.dropEnd suffix.length).copy.toList =
       (str.dropEnd suffix.length).toString.toList := by
-    congr 1; exact (congrFun String.Slice.toString_eq _).symm
+    congr 1
   rw [hcopy_eq] at h
   generalize hd : ((str.dropEnd suffix.length).toString.toList.reverse.takeWhile
       Char.isDigit).reverse = digs at h
@@ -294,10 +288,7 @@ private theorem isDurationQuantity_of_parseUnit?_endsWith (isNeg : Bool) (str su
     | some n =>
       refine ⟨String.ofList digs, ?_, ?_⟩
       · simp
-      · refine ⟨?_, by simp [hnat]⟩
-        intro hempty
-        have : digs = [] := by simpa using congrArg String.toList hempty
-        simp [this] at hdne
+      · exact isDigits_of_toNat?'_isSome (by simp [hnat])
   · simp [hdne] at h
 
 -- Reconstruct DurationComponents from a body string by peeling each suffix in turn.
@@ -350,7 +341,7 @@ private theorem extract_reconstruct_step (isNeg : Bool) (s suffix : String) (v :
   unfold extractTrailingDurationQuantity digitStr_of_parseUnit? durationChunk
   have hcopy_eq : (s.dropEnd suffix.length).copy.toList =
       (s.dropEnd suffix.length).toString.toList := by
-    congr 1; exact (congrFun String.Slice.toString_eq _).symm
+    congr 1
   by_cases hew : s.endsWith suffix = true
   · simp only [hew, ite_true]
     have hpu' := hpu
@@ -456,7 +447,7 @@ theorem wf_of_parseDuration?_eq_some (isNeg : Bool) (body : String) (d : Duratio
                     simp only [hew, ite_true] at hpu
                     have hcopy_eq : (s.dropEnd suf.length).copy.toList =
                         (s.dropEnd suf.length).toString.toList := by
-                      congr 1; exact (congrFun String.Slice.toString_eq _).symm
+                      congr 1
                     rw [hcopy_eq] at hpu
                     simp only at hds
                     split at hds <;> split at hpu <;> simp_all
@@ -495,7 +486,7 @@ theorem wf_of_parseDuration?_eq_some (isNeg : Bool) (body : String) (d : Duratio
                     · simp at hds
                   have hds_wf : ∀ (s suf : String) (isN : Bool) (v' : Int) (r d : String),
                       parseUnit? isN s suf = some (v', r) →
-                      digitStr_of_parseUnit? s suf = some d → IsDurationQuantity d := by
+                      digitStr_of_parseUnit? s suf = some d → IsDigits d := by
                     intro s suf isN v' r d hpu hds
                     have hew := hds_endsWith s suf d hds
                     obtain ⟨d', hd'_eq, hd'_wf⟩ :=
@@ -593,10 +584,10 @@ private theorem takeWhile_append_stop_chain {l₁ l₂ : List α} {p : α → Bo
   · simp
   · simp [List.takeWhile, hy]
 
--- Extract on (pfx ++ digits ++ suffix) returns (n, pfx) when digits is IsDurationQuantity
+-- Extract on (pfx ++ digits ++ suffix) returns (n, pfx) when digits is IsDigits
 -- and pfx is empty or ends with a non-digit char.
 private theorem extract_step_chain (pfx digits suffix : String) (n : Nat)
-    (hdq : IsDurationQuantity digits)
+    (hdq : IsDigits digits)
     (hnat : toNat?' digits = some n)
     (hpfx_end : pfx = "" ∨ ∃ c cs, pfx.toList.reverse = c :: cs ∧ c.isDigit = false) :
     (extractTrailingDurationQuantity (pfx ++ digits ++ suffix) suffix).2 = pfx := by
@@ -637,7 +628,7 @@ private theorem extract_step_chain (pfx digits suffix : String) (n : Nat)
   rw [List.take_left, List.take_left]
 
 private theorem extract_step_chain_pair (pfx digits suffix : String) (n : Nat)
-    (hdq : IsDurationQuantity digits)
+    (hdq : IsDigits digits)
     (hnat : toNat?' digits = some n)
     (hpfx_end : pfx = "" ∨ ∃ c cs, pfx.toList.reverse = c :: cs ∧ c.isDigit = false) :
     extractTrailingDurationQuantity (pfx ++ digits ++ suffix) suffix = (n, pfx) := by
@@ -672,7 +663,7 @@ private theorem extract_step_chain_pair (pfx digits suffix : String) (n : Nat)
 
 -- The reverse of (digits ++ suffix) starts with a non-digit char for duration suffixes.
 private theorem chunk_reverse_starts_non_digit (digits suffix : String)
-    (_hdq : IsDurationQuantity digits)
+    (_hdq : IsDigits digits)
     (hsuf : suffix = "d" ∨ suffix = "h" ∨ suffix = "m" ∨ suffix = "s" ∨ suffix = "ms") :
     ∃ c cs, (digits ++ suffix).toList.reverse = c :: cs ∧ c.isDigit = false := by
   rcases hsuf with rfl | rfl | rfl | rfl | rfl <;>
@@ -681,7 +672,7 @@ private theorem chunk_reverse_starts_non_digit (digits suffix : String)
 
 -- Prefixing preserves the "ends with non-digit" property.
 private theorem pfx_append_chunk_reverse_non_digit (pfx digits suffix : String)
-    (hdq : IsDurationQuantity digits)
+    (hdq : IsDigits digits)
     (hsuf : suffix = "d" ∨ suffix = "h" ∨ suffix = "m" ∨ suffix = "s" ∨ suffix = "ms") :
     ∃ c cs, (pfx ++ (digits ++ suffix)).toList.reverse = c :: cs ∧ c.isDigit = false := by
   obtain ⟨c, cs, hrev, hnd⟩ := chunk_reverse_starts_non_digit digits suffix hdq hsuf
@@ -691,14 +682,14 @@ private theorem pfx_append_chunk_reverse_non_digit (pfx digits suffix : String)
   simp only [String.toList_append, List.reverse_append]
   rw [hrev']; simp
 
--- A string ending with (digits ++ "s") where digits is IsDurationQuantity
+-- A string ending with (digits ++ "s") where digits is IsDigits
 -- does not endWith "ms" (the char before 's' is a digit, not 'm').
 private theorem not_endsWith_ms_of_digits_s_chain (pfx digits : String)
-    (hdq : IsDurationQuantity digits) :
+    (hdq : IsDigits digits) :
     (pfx ++ digits ++ "s").endsWith "ms" = false := by
   simp [String.endsWith_eq_endsWith_toSlice, String.toList_append]
   intro ⟨pre, hpre⟩
-  have hne : digits.toList ≠ [] := by intro h; exact hdq.1 (by ext; simp [h])
+  have hne : digits.toList ≠ [] := by intro h; exact hdq.ne_empty (by ext; simp [h])
   have hlen : pre.length + 2 = pfx.toList.length + digits.toList.length + 1 := by
     have h := congrArg List.length hpre
     simp only [List.length_append, List.length_cons, List.length_nil] at h; omega
@@ -773,7 +764,7 @@ private theorem extract_chain_rest_empty_of_wf (isNeg : Bool) (body : String)
             (intro ⟨t, ht⟩; have := congrArg List.getLast? ht;
               simp [List.getLast?_append, List.getLast?_cons] at this)
         | some s_d =>
-          have h_iq : IsDurationQuantity s_d := hwf_s
+          have h_iq : IsDigits s_d := hwf_s
           have := not_endsWith_ms_of_digits_s_chain
             (durationChunk days "d" ++ durationChunk hours "h" ++ durationChunk minutes "m") s_d h_iq
           simp only [String.append_assoc] at this
@@ -783,7 +774,7 @@ private theorem extract_chain_rest_empty_of_wf (isNeg : Bool) (body : String)
       simp [hew]
     | some ms_d =>
       have h_iq := hwf_ms
-      obtain ⟨hne, hsome⟩ := h_iq
+      have hsome := h_iq.toNat?'_isSome
       obtain ⟨n, hnat⟩ := Option.isSome_iff_exists.mp hsome
       -- pfx = d_chunk ++ h_chunk ++ m_chunk ++ s_chunk ends with 's','m','h','d' (non-digit) or is ""
       have hpfx_end : (durationChunk days "d" ++ durationChunk hours "h" ++
@@ -796,7 +787,7 @@ private theorem extract_chain_rest_empty_of_wf (isNeg : Bool) (body : String)
           simp [durationChunk, String.toList_append]
       have hstep := extract_step_chain
         (durationChunk days "d" ++ durationChunk hours "h" ++ durationChunk minutes "m" ++
-          durationChunk seconds "s") ms_d "ms" n ⟨hne, hsome⟩ hnat hpfx_end
+          durationChunk seconds "s") ms_d "ms" n h_iq hnat hpfx_end
       simp only [durationChunk, String.append_assoc] at hstep ⊢
       exact hstep
   -- Step 2: rest₂ = (extract rest₁ "s").2 = d_chunk ++ h_chunk ++ m_chunk
@@ -816,7 +807,7 @@ private theorem extract_chain_rest_empty_of_wf (isNeg : Bool) (body : String)
     | some s_d =>
       -- seconds present: apply extract_step_chain
       have h_iq := hwf_s
-      obtain ⟨hne, hsome⟩ := h_iq
+      have hsome := h_iq.toNat?'_isSome
       obtain ⟨n, hnat⟩ := Option.isSome_iff_exists.mp hsome
       have hpfx_end : (durationChunk days "d" ++ durationChunk hours "h" ++
           durationChunk minutes "m") = "" ∨
@@ -826,7 +817,7 @@ private theorem extract_chain_rest_empty_of_wf (isNeg : Bool) (body : String)
           simp [durationChunk, String.toList_append]
       have hstep := extract_step_chain
         (durationChunk days "d" ++ durationChunk hours "h" ++ durationChunk minutes "m")
-        s_d "s" n ⟨hne, hsome⟩ hnat hpfx_end
+        s_d "s" n h_iq hnat hpfx_end
       simp only [durationChunk, String.append_assoc] at hstep ⊢
       exact hstep
   -- Step 3: rest₃ = (extract rest₂ "m").2 = d_chunk ++ h_chunk
@@ -870,7 +861,7 @@ private theorem extract_chain_rest_empty_of_wf (isNeg : Bool) (body : String)
         simp [hew]
     | some m_d =>
       have h_iq := hwf_m
-      obtain ⟨hne, hsome⟩ := h_iq
+      have hsome := h_iq.toNat?'_isSome
       obtain ⟨n, hnat⟩ := Option.isSome_iff_exists.mp hsome
       have hpfx_end : durationChunk days "d" ++ durationChunk hours "h" = "" ∨
           ∃ c cs, (durationChunk days "d" ++ durationChunk hours "h").toList.reverse = c :: cs ∧
@@ -895,7 +886,7 @@ private theorem extract_chain_rest_empty_of_wf (isNeg : Bool) (body : String)
             exact pfx_append_chunk_reverse_non_digit (durationChunk (some d_d) "d") hr_d "h" h_iq_h
               (Or.inr (Or.inl rfl))
       have := extract_step_chain (durationChunk days "d" ++ durationChunk hours "h") m_d "m" n
-        ⟨hne, hsome⟩ hnat hpfx_end
+        h_iq hnat hpfx_end
       simp only [durationChunk, String.append_assoc] at this ⊢
       exact this
   -- Step 4: rest₄ = (extract rest₃ "h").2 = d_chunk
@@ -921,7 +912,7 @@ private theorem extract_chain_rest_empty_of_wf (isNeg : Bool) (body : String)
         simp [hew]
     | some hr_d =>
       have h_iq := hwf_h
-      obtain ⟨hne, hsome⟩ := h_iq
+      have hsome := h_iq.toNat?'_isSome
       obtain ⟨n, hnat⟩ := Option.isSome_iff_exists.mp hsome
       have hpfx_end : durationChunk days "d" = "" ∨
           ∃ c cs, (durationChunk days "d").toList.reverse = c :: cs ∧ c.isDigit = false := by
@@ -931,7 +922,7 @@ private theorem extract_chain_rest_empty_of_wf (isNeg : Bool) (body : String)
           right
           have h_iq_d := hwf_d
           exact pfx_append_chunk_reverse_non_digit "" d_d "d" h_iq_d (Or.inl rfl)
-      have := extract_step_chain (durationChunk days "d") hr_d "h" n ⟨hne, hsome⟩ hnat hpfx_end
+      have := extract_step_chain (durationChunk days "d") hr_d "h" n h_iq hnat hpfx_end
       simp only [durationChunk, String.append_assoc] at this ⊢
       exact this
   -- Step 5: rest₅ = (extract rest₄ "d").2 = ""
@@ -940,9 +931,9 @@ private theorem extract_chain_rest_empty_of_wf (isNeg : Bool) (body : String)
   | none => simp [durationChunk, extractTrailingDurationQuantity, String.endsWith_eq_endsWith_toSlice]
   | some d_d =>
     have h_iq := hwf_d
-    obtain ⟨hne, hsome⟩ := h_iq
+    have hsome := h_iq.toNat?'_isSome
     obtain ⟨n, hnat⟩ := Option.isSome_iff_exists.mp hsome
-    have := extract_step_chain "" d_d "d" n ⟨hne, hsome⟩ hnat (Or.inl rfl)
+    have := extract_step_chain "" d_d "d" n h_iq hnat (Or.inl rfl)
     simpa [String.empty_append] using this
 
 /-- The negative-bound derivation used in the overflow omega finisher. -/
@@ -1096,7 +1087,7 @@ theorem parseDuration?_eq_duration?_of_wf (isNegative : Bool) (body : String)
     simp only [hew, ite_true] at h₁
     have hcopy_eq : (body.dropEnd "ms".length).copy.toList =
         (body.dropEnd "ms".length).toString.toList := by
-      congr 1; exact (congrFun String.Slice.toString_eq _).symm
+      congr 1
     generalize hdig : ((body.dropEnd "ms".length).toString.toList.reverse.takeWhile
         Char.isDigit).reverse = digs at h₁
     cases hdne : digs.isEmpty with
@@ -1118,17 +1109,17 @@ theorem parseDuration?_eq_duration?_of_wf (isNegative : Bool) (body : String)
             (obtain ⟨t, ht⟩ := hew; have := congrArg List.getLast? ht;
               simp [List.getLast?_append, List.getLast?_cons] at this)
         | some s_d =>
-          have h_iq : IsDurationQuantity s_d := by
+          have h_iq : IsDigits s_d := by
             have := hwf_q.2.2.2; cases hms; simp at this; exact this
           have hfalse := not_endsWith_ms_of_digits_s_chain
             (durationChunk days "d" ++ durationChunk hours "h" ++ durationChunk minutes "m") s_d h_iq
           simp only [String.append_assoc, durationChunk] at hfalse hew
           rw [hfalse] at hew; exact absurd hew (by decide)
       | some ms_d =>
-        have hwf_ms : IsDurationQuantity ms_d := by
+        have hwf_ms : IsDigits ms_d := by
           have := hwf_q.2.2.2.2; rw [hms] at this; exact this
-        obtain ⟨hne_ms, hsome_ms⟩ := hwf_ms
-        have hdigits_all := allDigit_of_isDurationQuantity ms_d ⟨hne_ms, hsome_ms⟩
+        have hne_ms := hwf_ms.ne_empty
+        have hdigits_all := allDigit_of_isDurationQuantity ms_d hwf_ms
         have hdigs_eq : digs = [] := by
           cases hd : digs with
           | nil => rfl
@@ -1187,7 +1178,7 @@ theorem parseDuration?_eq_duration?_of_wf (isNegative : Bool) (body : String)
       | none =>
         -- toNat?' failed on trailing digits — contradicts well-formedness.
         -- Same structure as the digits-empty case: extract ms component, show digs = ms_d.toList,
-        -- then toNat?' ms_d succeeds (from IsDurationQuantity), contradiction.
+        -- then toNat?' ms_d succeeds (from IsDigits), contradiction.
         exfalso
         obtain ⟨⟨days, hours, minutes, seconds, milliseconds⟩, _, hwf_q, hbody⟩ := h
         simp only [DurationComponents.quantitiesWf, IsOptionalDurationQuantity] at hwf_q
@@ -1203,17 +1194,16 @@ theorem parseDuration?_eq_duration?_of_wf (isNegative : Bool) (body : String)
               (obtain ⟨t, ht⟩ := hew; have := congrArg List.getLast? ht;
                 simp [List.getLast?_append, List.getLast?_cons] at this)
           | some s_d =>
-            have h_iq : IsDurationQuantity s_d := by
+            have h_iq : IsDigits s_d := by
               have := hwf_q.2.2.2; cases hms; simp at this; exact this
             have hfalse := not_endsWith_ms_of_digits_s_chain
               (durationChunk days "d" ++ durationChunk hours "h" ++ durationChunk minutes "m") s_d h_iq
             simp only [String.append_assoc, durationChunk] at hfalse hew
             rw [hfalse] at hew; exact absurd hew (by decide)
         | some ms_d =>
-          have hwf_ms : IsDurationQuantity ms_d := by
+          have hwf_ms : IsDigits ms_d := by
             have := hwf_q.2.2.2.2; rw [hms] at this; exact this
-          obtain ⟨hne_ms, hsome_ms⟩ := hwf_ms
-          obtain ⟨n, hn⟩ := Option.isSome_iff_exists.mp hsome_ms
+          obtain ⟨n, hn⟩ := Option.isSome_iff_exists.mp hwf_ms.toNat?'_isSome
           -- body = pfx ++ ms_d ++ "ms", so (body.dropEnd 2).toString = pfx ++ ms_d
           -- The trailing digit run of pfx ++ ms_d is ms_d.toList
           have hpfx_end : (durationChunk days "d" ++ durationChunk hours "h" ++
@@ -1242,7 +1232,7 @@ theorem parseDuration?_eq_duration?_of_wf (isNegative : Bool) (body : String)
             exact List.append_cancel_right h
           have hall_rev : ∀ c ∈ ms_d.toList.reverse, Char.isDigit c = true := by
             intro c hc
-            exact allDigit_of_isDurationQuantity ms_d ⟨hne_ms, hsome_ms⟩ c (List.mem_reverse.mp hc)
+            exact allDigit_of_isDurationQuantity ms_d hwf_ms c (List.mem_reverse.mp hc)
           have htw : ((body.dropEnd "ms".length).toString.toList.reverse.takeWhile
               Char.isDigit).reverse = ms_d.toList := by
             rw [hdrop_eq, String.toList_append, List.reverse_append]
@@ -1316,7 +1306,7 @@ theorem parseDuration?_eq_duration?_of_wf (isNegative : Bool) (body : String)
                 (intro ⟨t, ht⟩; have := congrArg List.getLast? ht;
                   simp [List.getLast?_append, List.getLast?_cons] at this)
             | some s_d =>
-              have h_iq : IsDurationQuantity s_d := hwf_s
+              have h_iq : IsDigits s_d := hwf_s
               have := not_endsWith_ms_of_digits_s_chain
                 (durationChunk days "d" ++ durationChunk hours "h" ++ durationChunk minutes "m") s_d h_iq
               simp only [String.append_assoc, durationChunk] at this ⊢
@@ -1324,7 +1314,7 @@ theorem parseDuration?_eq_duration?_of_wf (isNegative : Bool) (body : String)
           simp only [durationChunk] at hew'; simp [hew']
         | some ms_d =>
           have h_iq := hwf_ms
-          obtain ⟨hne, hsome⟩ := h_iq
+          have hsome := h_iq.toNat?'_isSome
           obtain ⟨n, hnat⟩ := Option.isSome_iff_exists.mp hsome
           have hpfx_end : (durationChunk days "d" ++ durationChunk hours "h" ++
               durationChunk minutes "m" ++ durationChunk seconds "s") = "" ∨
@@ -1336,7 +1326,7 @@ theorem parseDuration?_eq_duration?_of_wf (isNegative : Bool) (body : String)
               simp [durationChunk, String.toList_append]
           have hstep := extract_step_chain
             (durationChunk days "d" ++ durationChunk hours "h" ++ durationChunk minutes "m" ++
-              durationChunk seconds "s") ms_d "ms" n ⟨hne, hsome⟩ hnat hpfx_end
+              durationChunk seconds "s") ms_d "ms" n h_iq hnat hpfx_end
           simp only [durationChunk, String.append_assoc] at hstep ⊢
           exact hstep
       have hsec_some : ∃ s_d, seconds = some s_d := by
@@ -1375,7 +1365,7 @@ theorem parseDuration?_eq_duration?_of_wf (isNegative : Bool) (body : String)
       have hall_digits_s : ∀ c ∈ s_d.toList, Char.isDigit c = true :=
         allDigit_of_isDurationQuantity s_d hwf_s
       have hs_ne : s_d.toList ≠ [] := by
-        intro he; exact hwf_s.1 (by ext; simp [he])
+        intro he; exact hwf_s.ne_empty (by ext; simp [he])
       have hall_rev : ∀ c ∈ s_d.toList.reverse, Char.isDigit c = true := by
         intro c hc; exact hall_digits_s c (List.mem_reverse.mp hc)
       have hpfx_end : (durationChunk days "d" ++ durationChunk hours "h" ++
@@ -1396,9 +1386,9 @@ theorem parseDuration?_eq_duration?_of_wf (isNegative : Bool) (body : String)
           Char.isDigit).reverse.isEmpty = false := by
         rw [show ((rest₁.dropEnd "s".length).toString.toList.reverse.takeWhile
             Char.isDigit).reverse = s_d.toList from hdigs_eq]
-        simp; intro he; exact hwf_s.1 (by ext; simp [he])
+        simp; intro he; exact hwf_s.ne_empty (by ext; simp [he])
       simp only [hdigs_ne_bool, Bool.false_eq_true, ite_false, bind, Option.bind] at h₂
-      obtain ⟨n, hnat⟩ := Option.isSome_iff_exists.mp hwf_s.2
+      obtain ⟨n, hnat⟩ := Option.isSome_iff_exists.mp hwf_s.toNat?'_isSome
       have hnat_eq : toNat?' (String.ofList ((rest₁.dropEnd "s".length).toString.toList.reverse.takeWhile
           Char.isDigit |>.reverse)) = some n := by
         rw [hdigs_eq, show String.ofList s_d.toList = s_d from by simp]; exact hnat
@@ -1464,7 +1454,7 @@ theorem parseDuration?_eq_duration?_of_wf (isNegative : Bool) (body : String)
                     (intro ⟨t, ht⟩; have := congrArg List.getLast? ht;
                       simp [List.getLast?_append, List.getLast?_cons] at this)
                 | some s_d =>
-                  have h_iq : IsDurationQuantity s_d := hwf_s
+                  have h_iq : IsDigits s_d := hwf_s
                   have := not_endsWith_ms_of_digits_s_chain
                     (durationChunk days "d" ++ durationChunk hours "h" ++ durationChunk minutes "m") s_d h_iq
                   simp only [String.append_assoc, durationChunk] at this ⊢
@@ -1472,7 +1462,7 @@ theorem parseDuration?_eq_duration?_of_wf (isNegative : Bool) (body : String)
               simp only [durationChunk] at hew'; simp [hew']
             | some ms_d =>
               have h_iq := hwf_ms
-              obtain ⟨hne, hsome⟩ := h_iq
+              have hsome := h_iq.toNat?'_isSome
               obtain ⟨n, hnat⟩ := Option.isSome_iff_exists.mp hsome
               have hpfx_end : (durationChunk days "d" ++ durationChunk hours "h" ++
                   durationChunk minutes "m" ++ durationChunk seconds "s") = "" ∨
@@ -1484,7 +1474,7 @@ theorem parseDuration?_eq_duration?_of_wf (isNegative : Bool) (body : String)
                   simp [durationChunk, String.toList_append]
               have hstep := extract_step_chain
                 (durationChunk days "d" ++ durationChunk hours "h" ++ durationChunk minutes "m" ++
-                  durationChunk seconds "s") ms_d "ms" n ⟨hne, hsome⟩ hnat hpfx_end
+                  durationChunk seconds "s") ms_d "ms" n h_iq hnat hpfx_end
               simp only [durationChunk, String.append_assoc] at hstep ⊢
               exact hstep
           rw [hrest₁, hms_step]
@@ -1508,7 +1498,7 @@ theorem parseDuration?_eq_duration?_of_wf (isNegative : Bool) (body : String)
               simp only [durationChunk] at hew'; simp [hew']
             | some s_d =>
               have h_iq := hwf_s
-              obtain ⟨hne, hsome⟩ := h_iq
+              have hsome := h_iq.toNat?'_isSome
               obtain ⟨n, hnat⟩ := Option.isSome_iff_exists.mp hsome
               have hpfx_end : (durationChunk days "d" ++ durationChunk hours "h" ++
                   durationChunk minutes "m") = "" ∨
@@ -1520,7 +1510,7 @@ theorem parseDuration?_eq_duration?_of_wf (isNegative : Bool) (body : String)
                   simp [durationChunk, String.toList_append]
               have hstep := extract_step_chain
                 (durationChunk days "d" ++ durationChunk hours "h" ++
-                  durationChunk minutes "m") s_d "s" n ⟨hne, hsome⟩ hnat hpfx_end
+                  durationChunk minutes "m") s_d "s" n h_iq hnat hpfx_end
               simp only [durationChunk, String.append_assoc] at hstep ⊢
               exact hstep
           exact hs_step
@@ -1586,7 +1576,7 @@ theorem parseDuration?_eq_duration?_of_wf (isNegative : Bool) (body : String)
         have hall_digits_m : ∀ c ∈ m_d.toList, Char.isDigit c = true :=
           allDigit_of_isDurationQuantity m_d hwf_m
         have hm_ne : m_d.toList ≠ [] := by
-          intro he; exact hwf_m.1 (by ext; simp [he])
+          intro he; exact hwf_m.ne_empty (by ext; simp [he])
         have hdigs_eq : ((rest₂.dropEnd "m".length).toString.toList.reverse.takeWhile
             Char.isDigit).reverse = m_d.toList := by
           rw [hrest₂_drop, String.toList_append, List.reverse_append]
@@ -1621,9 +1611,9 @@ theorem parseDuration?_eq_duration?_of_wf (isNegative : Bool) (body : String)
             Char.isDigit).reverse.isEmpty = false := by
           rw [show ((rest₂.dropEnd "m".length).toString.toList.reverse.takeWhile
               Char.isDigit).reverse = m_d.toList from hdigs_eq]
-          simp; intro he; exact hwf_m.1 (by ext; simp [he])
+          simp; intro he; exact hwf_m.ne_empty (by ext; simp [he])
         simp only [hdigs_ne_bool, Bool.false_eq_true, ite_false, bind, Option.bind] at h₃
-        obtain ⟨n, hnat⟩ := Option.isSome_iff_exists.mp hwf_m.2
+        obtain ⟨n, hnat⟩ := Option.isSome_iff_exists.mp hwf_m.toNat?'_isSome
         have hnat_eq : toNat?' (String.ofList ((rest₂.dropEnd "m".length).toString.toList.reverse.takeWhile
             Char.isDigit |>.reverse)) = some n := by
           rw [hdigs_eq, show String.ofList m_d.toList = m_d from by simp]; exact hnat
@@ -1693,7 +1683,7 @@ theorem parseDuration?_eq_duration?_of_wf (isNegative : Bool) (body : String)
                         (intro ⟨t, ht⟩; have := congrArg List.getLast? ht;
                           simp [List.getLast?_append, List.getLast?_cons] at this)
                     | some s_d =>
-                      have h_iq : IsDurationQuantity s_d := hwf_s
+                      have h_iq : IsDigits s_d := hwf_s
                       have := not_endsWith_ms_of_digits_s_chain
                         (durationChunk days "d" ++ durationChunk hours "h" ++ durationChunk minutes "m") s_d h_iq
                       simp only [String.append_assoc, durationChunk] at this ⊢
@@ -1701,7 +1691,7 @@ theorem parseDuration?_eq_duration?_of_wf (isNegative : Bool) (body : String)
                   simp only [durationChunk] at hew'; simp [hew']
                 | some ms_d =>
                   have h_iq := hwf_ms
-                  obtain ⟨hne, hsome⟩ := h_iq
+                  have hsome := h_iq.toNat?'_isSome
                   obtain ⟨n, hnat⟩ := Option.isSome_iff_exists.mp hsome
                   have hpfx_end : (durationChunk days "d" ++ durationChunk hours "h" ++
                       durationChunk minutes "m" ++ durationChunk seconds "s") = "" ∨
@@ -1713,7 +1703,7 @@ theorem parseDuration?_eq_duration?_of_wf (isNegative : Bool) (body : String)
                       simp [durationChunk, String.toList_append]
                   have hstep := extract_step_chain
                     (durationChunk days "d" ++ durationChunk hours "h" ++ durationChunk minutes "m" ++
-                      durationChunk seconds "s") ms_d "ms" n ⟨hne, hsome⟩ hnat hpfx_end
+                      durationChunk seconds "s") ms_d "ms" n h_iq hnat hpfx_end
                   simp only [durationChunk, String.append_assoc] at hstep ⊢
                   exact hstep
               rw [hms_step]
@@ -1737,7 +1727,7 @@ theorem parseDuration?_eq_duration?_of_wf (isNegative : Bool) (body : String)
                   simp only [durationChunk] at hew'; simp [hew']
                 | some s_d =>
                   have h_iq := hwf_s
-                  obtain ⟨hne, hsome⟩ := h_iq
+                  have hsome := h_iq.toNat?'_isSome
                   obtain ⟨n, hnat⟩ := Option.isSome_iff_exists.mp hsome
                   have hpfx_end : (durationChunk days "d" ++ durationChunk hours "h" ++
                       durationChunk minutes "m") = "" ∨
@@ -1749,7 +1739,7 @@ theorem parseDuration?_eq_duration?_of_wf (isNegative : Bool) (body : String)
                       simp [durationChunk, String.toList_append]
                   have hstep := extract_step_chain
                     (durationChunk days "d" ++ durationChunk hours "h" ++
-                      durationChunk minutes "m") s_d "s" n ⟨hne, hsome⟩ hnat hpfx_end
+                      durationChunk minutes "m") s_d "s" n h_iq hnat hpfx_end
                   simp only [durationChunk, String.append_assoc] at hstep ⊢
                   exact hstep
               rw [hs_step]
@@ -1794,7 +1784,7 @@ theorem parseDuration?_eq_duration?_of_wf (isNegative : Bool) (body : String)
                 simp [hew']
             | some m_d =>
               have h_iq := hwf_m
-              obtain ⟨hne, hsome⟩ := h_iq
+              have hsome := h_iq.toNat?'_isSome
               obtain ⟨n, hnat⟩ := Option.isSome_iff_exists.mp hsome
               have hpfx_end : durationChunk days "d" ++ durationChunk hours "h" = "" ∨
                   ∃ c cs, (durationChunk days "d" ++ durationChunk hours "h").toList.reverse =
@@ -1817,7 +1807,7 @@ theorem parseDuration?_eq_duration?_of_wf (isNegative : Bool) (body : String)
                       (Or.inr (Or.inl rfl))
               have hstep := extract_step_chain
                 (durationChunk days "d" ++ durationChunk hours "h") m_d "m" n
-                ⟨hne, hsome⟩ hnat hpfx_end
+                h_iq hnat hpfx_end
               simp only [durationChunk, String.append_assoc] at hstep ⊢
               exact hstep
           have hhours_some : ∃ hr_d, hours = some hr_d := by
@@ -1863,7 +1853,7 @@ theorem parseDuration?_eq_duration?_of_wf (isNegative : Bool) (body : String)
           have hall_digits_h : ∀ c ∈ hr_d.toList, Char.isDigit c = true :=
             allDigit_of_isDurationQuantity hr_d hwf_h
           have hh_ne : hr_d.toList ≠ [] := by
-            intro he; exact hwf_h.1 (by ext; simp [he])
+            intro he; exact hwf_h.ne_empty (by ext; simp [he])
           have hdigs_eq : ((rest₃.dropEnd "h".length).toString.toList.reverse.takeWhile
               Char.isDigit).reverse = hr_d.toList := by
             rw [hrest₃_drop, String.toList_append]
@@ -1883,9 +1873,9 @@ theorem parseDuration?_eq_duration?_of_wf (isNegative : Bool) (body : String)
               Char.isDigit).reverse.isEmpty = false := by
             rw [show ((rest₃.dropEnd "h".length).toString.toList.reverse.takeWhile
                 Char.isDigit).reverse = hr_d.toList from hdigs_eq]
-            simp; intro he; exact hwf_h.1 (by ext; simp [he])
+            simp; intro he; exact hwf_h.ne_empty (by ext; simp [he])
           simp only [hdigs_ne_bool, Bool.false_eq_true, ite_false, bind, Option.bind] at h₄
-          obtain ⟨n, hnat⟩ := Option.isSome_iff_exists.mp hwf_h.2
+          obtain ⟨n, hnat⟩ := Option.isSome_iff_exists.mp hwf_h.toNat?'_isSome
           have hnat_eq : toNat?' (String.ofList ((rest₃.dropEnd "h".length).toString.toList.reverse.takeWhile
               Char.isDigit |>.reverse)) = some n := by
             rw [hdigs_eq, show String.ofList hr_d.toList = hr_d from by simp]; exact hnat
@@ -1957,7 +1947,7 @@ theorem parseDuration?_eq_duration?_of_wf (isNegative : Bool) (body : String)
                           (intro ⟨t, ht⟩; have := congrArg List.getLast? ht;
                             simp [List.getLast?_append, List.getLast?_cons] at this)
                       | some s_d =>
-                        have h_iq : IsDurationQuantity s_d := hwf_s
+                        have h_iq : IsDigits s_d := hwf_s
                         have := not_endsWith_ms_of_digits_s_chain
                           (durationChunk days "d" ++ durationChunk hours "h" ++ durationChunk minutes "m") s_d h_iq
                         simp only [String.append_assoc, durationChunk] at this ⊢
@@ -1965,7 +1955,7 @@ theorem parseDuration?_eq_duration?_of_wf (isNegative : Bool) (body : String)
                     simp only [durationChunk] at hew'; simp [hew']
                   | some ms_d =>
                     have h_iq := hwf_ms
-                    obtain ⟨hne, hsome⟩ := h_iq
+                    have hsome := h_iq.toNat?'_isSome
                     obtain ⟨n, hnat⟩ := Option.isSome_iff_exists.mp hsome
                     have hpfx_end : (durationChunk days "d" ++ durationChunk hours "h" ++
                         durationChunk minutes "m" ++ durationChunk seconds "s") = "" ∨
@@ -1977,7 +1967,7 @@ theorem parseDuration?_eq_duration?_of_wf (isNegative : Bool) (body : String)
                         simp [durationChunk, String.toList_append]
                     have hstep := extract_step_chain
                       (durationChunk days "d" ++ durationChunk hours "h" ++ durationChunk minutes "m" ++
-                        durationChunk seconds "s") ms_d "ms" n ⟨hne, hsome⟩ hnat hpfx_end
+                        durationChunk seconds "s") ms_d "ms" n h_iq hnat hpfx_end
                     simp only [durationChunk, String.append_assoc] at hstep ⊢
                     exact hstep
                 rw [hms_step]
@@ -2001,7 +1991,7 @@ theorem parseDuration?_eq_duration?_of_wf (isNegative : Bool) (body : String)
                     simp only [durationChunk] at hew'; simp [hew']
                   | some s_d =>
                     have h_iq := hwf_s
-                    obtain ⟨hne, hsome⟩ := h_iq
+                    have hsome := h_iq.toNat?'_isSome
                     obtain ⟨n, hnat⟩ := Option.isSome_iff_exists.mp hsome
                     have hpfx_end : (durationChunk days "d" ++ durationChunk hours "h" ++
                         durationChunk minutes "m") = "" ∨
@@ -2013,7 +2003,7 @@ theorem parseDuration?_eq_duration?_of_wf (isNegative : Bool) (body : String)
                         simp [durationChunk, String.toList_append]
                     have hstep := extract_step_chain
                       (durationChunk days "d" ++ durationChunk hours "h" ++
-                        durationChunk minutes "m") s_d "s" n ⟨hne, hsome⟩ hnat hpfx_end
+                        durationChunk minutes "m") s_d "s" n h_iq hnat hpfx_end
                     simp only [durationChunk, String.append_assoc] at hstep ⊢
                     exact hstep
                 rw [hs_step]
@@ -2060,7 +2050,7 @@ theorem parseDuration?_eq_duration?_of_wf (isNegative : Bool) (body : String)
                       simp [hew']
                   | some m_d =>
                     have h_iq := hwf_m
-                    obtain ⟨hne, hsome⟩ := h_iq
+                    have hsome := h_iq.toNat?'_isSome
                     obtain ⟨n, hnat⟩ := Option.isSome_iff_exists.mp hsome
                     have hpfx_end : durationChunk days "d" ++ durationChunk hours "h" = "" ∨
                         ∃ c cs, (durationChunk days "d" ++ durationChunk hours "h").toList.reverse =
@@ -2083,7 +2073,7 @@ theorem parseDuration?_eq_duration?_of_wf (isNegative : Bool) (body : String)
                             (Or.inr (Or.inl rfl))
                     have hstep := extract_step_chain
                       (durationChunk days "d" ++ durationChunk hours "h") m_d "m" n
-                      ⟨hne, hsome⟩ hnat hpfx_end
+                      h_iq hnat hpfx_end
                     simp only [durationChunk, String.append_assoc] at hstep ⊢
                     exact hstep
                 exact hm_step
@@ -2109,7 +2099,7 @@ theorem parseDuration?_eq_duration?_of_wf (isNegative : Bool) (body : String)
                   simp [hew']
               | some hr_d =>
                 have h_iq := hwf_h
-                obtain ⟨hne, hsome⟩ := h_iq
+                have hsome := h_iq.toNat?'_isSome
                 obtain ⟨n, hnat⟩ := Option.isSome_iff_exists.mp hsome
                 have hpfx_end : durationChunk days "d" = "" ∨
                     ∃ c cs, (durationChunk days "d").toList.reverse = c :: cs ∧
@@ -2120,7 +2110,7 @@ theorem parseDuration?_eq_duration?_of_wf (isNegative : Bool) (body : String)
                     right
                     exact pfx_append_chunk_reverse_non_digit "" d_d "d" hwf_d (Or.inl rfl)
                 have hstep := extract_step_chain (durationChunk days "d") hr_d "h" n
-                  ⟨hne, hsome⟩ hnat hpfx_end
+                  h_iq hnat hpfx_end
                 simp only [durationChunk, String.append_assoc] at hstep ⊢
                 exact hstep
             have hdays_some : ∃ d_d, days = some d_d := by
@@ -2144,7 +2134,7 @@ theorem parseDuration?_eq_duration?_of_wf (isNegative : Bool) (body : String)
             have hall_digits_d : ∀ c ∈ d_d.toList, Char.isDigit c = true :=
               allDigit_of_isDurationQuantity d_d hwf_d
             have hd_ne : d_d.toList ≠ [] := by
-              intro he; exact hwf_d.1 (by ext; simp [he])
+              intro he; exact hwf_d.ne_empty (by ext; simp [he])
             have hdigs_eq : ((rest₄.dropEnd "d".length).toString.toList.reverse.takeWhile
                 Char.isDigit).reverse = d_d.toList := by
               rw [hrest₄_drop]
@@ -2160,9 +2150,9 @@ theorem parseDuration?_eq_duration?_of_wf (isNegative : Bool) (body : String)
                 Char.isDigit).reverse.isEmpty = false := by
               rw [show ((rest₄.dropEnd "d".length).toString.toList.reverse.takeWhile
                   Char.isDigit).reverse = d_d.toList from hdigs_eq]
-              simp; intro he; exact hwf_d.1 (by ext; simp [he])
+              simp; intro he; exact hwf_d.ne_empty (by ext; simp [he])
             simp only [hdigs_ne_bool, Bool.false_eq_true, ite_false, bind, Option.bind] at h₅
-            obtain ⟨n, hnat⟩ := Option.isSome_iff_exists.mp hwf_d.2
+            obtain ⟨n, hnat⟩ := Option.isSome_iff_exists.mp hwf_d.toNat?'_isSome
             have hnat_eq : toNat?' (String.ofList ((rest₄.dropEnd "d".length).toString.toList.reverse.takeWhile
                 Char.isDigit |>.reverse)) = some n := by
               rw [hdigs_eq, show String.ofList d_d.toList = d_d from by simp]; exact hnat
@@ -2342,20 +2332,12 @@ theorem duration?_of_val_toInt (d : Duration) :
   rw [Int64.ofInt?_toInt]
   rfl
 
-private theorem toString_ne_empty (n : Nat) : toString n ≠ "" := by
-  intro heq
-  have : (toString n).toList = [] := by simp [heq]
-  rw [Nat.toString_eq_repr, Nat.toList_repr] at this
-  exact Nat.toDigits_ne_nil this
-
 private theorem isDurationQuantity_toString (n : Nat) :
-    IsDurationQuantity (toString n) := by
-  refine ⟨toString_ne_empty n, ?_⟩
-  rw [toNat?'_toString]
-  simp
+    IsDigits (toString n) :=
+  isDigits_of_toNat?'_isSome (by rw [toNat?'_toString]; simp)
 
 private theorem isDurationQuantity_repr (n : Nat) :
-    IsDurationQuantity (Nat.repr n) := by
+    IsDigits (Nat.repr n) := by
   simpa [Nat.toString_eq_repr] using isDurationQuantity_toString n
 
 private theorem repr_zero_ms : Nat.repr 0 ++ "ms" = "0ms" := by
