@@ -20,8 +20,10 @@ open Cedar.Spec.Ext
     ============================================================================================== -/
 
 /-- `Digit⁺`: a non-empty string all of whose characters are decimal digits. -/
+-- ANCHOR: IsDigits
 public def IsDigits (s : String) : Prop :=
   0 < s.length ∧ ∀ c ∈ s.toList, c.isDigit = true
+-- ANCHOR_END: IsDigits
 
 /-- A digit string contains no `'_'`, so `toInt?'`/`toNat?'` (which reject `'_'`) do not
     short-circuit on it. -/

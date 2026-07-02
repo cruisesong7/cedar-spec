@@ -21,19 +21,23 @@ its `toNat?'` bridges are shared with the duration grammar and live in `Cedar.Th
 /-- The grammar's `Integer ::= ['-'] Digit⁺`: either a bare non-empty digit string, or a
     `'-'` followed by one. The `∃ t` branch requires `IsDigits t`, so a bare `"-"` is
     excluded — this is what the grammar's `Digit⁺` (at least one digit) buys us. -/
+-- ANCHOR: IsWfInt
 public def IsWfInt (s : String) : Prop :=
   IsDigits s ∨ ∃ t, s = "-" ++ t ∧ IsDigits t
+-- ANCHOR_END: IsWfInt
 
 /-- Well-formed decimal syntax: `s` splits on `.` into exactly two parts, where the left part
     matches the grammar's `Integer ::= ['-'] Digit⁺` and the right part is a fraction of 1 to
     `DECIMAL_DIGITS` digits (`Digit{1,4}`). This is a direct transcription of the grammar's
     character-level productions, independent of any string-to-number parser. -/
+-- ANCHOR: IsWfStr
 public def IsWfStr (s : String) : Prop :=
  ∃ left right,
     s.splitToList (· = '.') = [left, right] ∧
     IsWfInt left ∧
     IsDigits right ∧
     right.length ≤ DECIMAL_DIGITS
+-- ANCHOR_END: IsWfStr
 
 /-- Compute the integer value that a decimal string represents, or `none` if the string does not
     split into an integer part and a fraction part. This mirrors the
@@ -42,6 +46,7 @@ public def IsWfStr (s : String) : Prop :=
       value = int(Integer) × 10⁴ + sign × nat(Fraction) × 10^(4 − |Fraction|)
       where sign = −1 if Integer starts with '-', else 1
 -/
+-- ANCHOR: computeValue
 public def computeValue (s : String) : Option Int :=
   match s.splitToList (· = '.') with
   | [left, right] =>
@@ -52,6 +57,7 @@ public def computeValue (s : String) : Option Int :=
           + sign * (r : Int) * Int.pow 10 (DECIMAL_DIGITS - right.length))
       | _, _ => none
   | _ => none
+-- ANCHOR_END: computeValue
 
 /-- Canonical-form normalizer: parse the string and re-serialize.
     Returns `none` for malformed or out-of-range inputs. -/

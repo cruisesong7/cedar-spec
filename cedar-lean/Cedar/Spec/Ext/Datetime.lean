@@ -244,6 +244,7 @@ def parseUnit? (isNegative : Bool) (str : String) (suffix : String) : Option (In
   else
     some (0, str)
 
+-- ANCHOR: parseDuration
 def parseDuration? (isNegative : Bool) (str : String) : Option Duration := do
   if str.isEmpty then failure
   let (milliseconds, restStr) ← parseUnit? isNegative str "ms"
@@ -254,10 +255,13 @@ def parseDuration? (isNegative : Bool) (str : String) : Option Duration := do
   if restStr.isEmpty
   then duration? (days + hours + minutes + seconds + milliseconds)
   else none
+-- ANCHOR_END: parseDuration
 
+-- ANCHOR: parse
 public def Duration.parse (str : String) : Option Duration :=
   let (isNegative, restStr) := isNegativeDuration str
   parseDuration? isNegative restStr
+-- ANCHOR_END: parse
 
 deriving instance Repr for Duration
 
@@ -311,6 +315,7 @@ private def durationComponent (n : Nat) (suffix : String) : String :=
 
     `Cedar.Thm.Duration.parse_toString_roundtrip` proves that parsing
     this representation recovers the original duration. -/
+-- ANCHOR: toString
 public def Duration.toString (d : Duration) : String :=
   let neg := d.val < 0
   let totalMs := d.val.toInt.natAbs
@@ -326,6 +331,7 @@ public def Duration.toString (d : Duration) : String :=
     durationComponent minutes "m" ++ durationComponent seconds "s" ++
     durationComponent ms "ms"
   if neg then "-" ++ body else body
+-- ANCHOR_END: toString
 
 public instance : ToString Duration where
   toString := Duration.toString

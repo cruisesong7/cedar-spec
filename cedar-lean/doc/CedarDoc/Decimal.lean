@@ -3,9 +3,15 @@ import Cedar.Thm.Ext.Decimal
 
 open Verso.Genre Manual
 open Verso.Genre.Manual.InlineLean
+open Verso.Code.External
 open Cedar.Thm.Decimal
 
 set_option verso.code.warnLineLength 80
+
+-- Source project for `module`/`anchor` code blocks: the sibling `cedar-lean`
+-- package, relative to this doc's Lake workspace. These blocks render the real
+-- imported definitions (true namespaces and bodies) straight from source.
+set_option verso.exampleProject ".."
 
 #doc (Manual) "Decimal Parsing" =>
 
@@ -35,27 +41,28 @@ A string is _valid_ if and only if it satisfies both the grammar and the constra
 
 # Parser
 
-`Decimal.parse` returns `some d` when the input string is valid, and `none` otherwise:
-
 ```lean -show
+-- Bring the spec's `Decimal` type and `Decimal.parse`/`toString` into scope for
+-- the executable `#eval` examples below. The definitions themselves are shown
+-- from source via `anchor` blocks, so nothing is redeclared here.
 open Cedar.Spec.Ext Cedar.Spec.Ext.Decimal
--- `DECIMAL_DIGITS` is private to the spec; redeclare it here so the
--- illustrative code blocks below elaborate.
-abbrev DECIMAL_DIGITS : Nat := 4
 ```
 
-```lean
-def parse (str : String) : Option Decimal :=
+`Decimal.parse` returns `some d` when the input string is valid, and `none` otherwise (shown here directly from its source in `Cedar.Spec.Ext.Decimal`):
+
+```anchor parse (module := Cedar.Spec.Ext.Decimal)
+public def parse (str : String) : Option Decimal :=
   match str.splitToList (· = '.') with
-  | ["-", _] => .none
+  | ["-", _] => .none -- guard against bare "-"; redundant on current stdlib (`String.toInt? "-" = none`) but robust to stdlib changes
   | [left, right] =>
     let rlen := right.length
-    if 0 < rlen ∧ rlen ≤ DECIMAL_DIGITS then
+    if 0 < rlen ∧ rlen ≤ DECIMAL_DIGITS
+    then
       match toInt?' left, toNat?' right with
       | .some l, .some r =>
         let l' := l * (Int.pow 10 DECIMAL_DIGITS)
         let r' := r * (Int.pow 10 (DECIMAL_DIGITS - rlen))
-        let i := if !left.startsWith "-" then l' + r' else l' - r'
+        let i  := if !left.startsWith "-" then l' + r' else l' - r'
         decimal? i
       | _, _ => .none
     else .none
@@ -89,49 +96,35 @@ none
 
 We formalize the validity of input string by the predicate `IsWfStr` (well-formed syntax of the grammar) and the function `computeValue` (value function).
 
-`IsWfStr` is a direct transcription of the grammar's character-level productions. The building block is `IsDigits`, which captures `Digit⁺` — a non-empty string all of whose characters satisfy `Char.isDigit`:
+`IsWfStr` is a direct transcription of the grammar's character-level productions. The building block is `IsDigits`, which captures `Digit⁺` — a non-empty string all of whose characters satisfy `Char.isDigit`. It lives at the root namespace in `Cedar.Thm.Data.String`, shared with the duration grammar:
 
-```lean -show
--- The real `IsDigits`/`IsWfInt` are already in scope; illustrate them in a
--- local namespace so the definitions below refer to each other unambiguously.
-namespace DocSpec
-```
-
-```lean
-def IsDigits (s : String) : Prop :=
+```anchor IsDigits (module := Cedar.Thm.Data.String)
+public def IsDigits (s : String) : Prop :=
   0 < s.length ∧ ∀ c ∈ s.toList, c.isDigit = true
 ```
 
 The integer part follows the grammar's `Integer ::= ['-'] Digit⁺` — either a bare digit string, or a `'-'` followed by one. Because the second branch still demands `IsDigits t`, a bare `"-"` is rejected structurally, without a separate side condition:
 
-```lean
-def IsWfInt (s : String) : Prop :=
+```anchor IsWfInt (module := Cedar.Thm.Ext.Decimal.Grammar)
+public def IsWfInt (s : String) : Prop :=
   IsDigits s ∨ ∃ t, s = "-" ++ t ∧ IsDigits t
 ```
 
 Well-formedness of the whole string then reads straight off the grammar — split on `.`, an `Integer` on the left, and a `Digit{1,4}` fraction on the right:
 
-{docstring IsWfStr}
-
-```lean
-def IsWfStr (s : String) : Prop :=
-  ∃ left right,
+```anchor IsWfStr (module := Cedar.Thm.Ext.Decimal.Grammar)
+public def IsWfStr (s : String) : Prop :=
+ ∃ left right,
     s.splitToList (· = '.') = [left, right] ∧
     IsWfInt left ∧
     IsDigits right ∧
     right.length ≤ DECIMAL_DIGITS
 ```
 
-```lean -show
-end DocSpec
-```
-
 Note that this definition talks only about digit characters — it does not mention the string-to-number parsers `toInt?'`/`toNat?'`. That keeps the specification faithful to the grammar and independent of any parsing implementation. The `computeValue` function below and `Decimal.parse` do use those parsers to extract the numeric value; a family of _bridge lemmas_ (e.g. `toInt?'_isSome_of_isWfInt` and its converse `isWfInt_of_toInt?'_isSome`) connect the two views, proving that a digit string is exactly one the parser accepts.
 
-{docstring computeValue}
-
-```lean
-def computeValue (s : String) : Option Int :=
+```anchor computeValue (module := Cedar.Thm.Ext.Decimal.Grammar)
+public def computeValue (s : String) : Option Int :=
   match s.splitToList (· = '.') with
   | [left, right] =>
     match toInt?' left, toNat?' right with
@@ -165,14 +158,15 @@ Together they also give a complete characterization of parsing failure — the p
 
 `toString` converts a decimal back to its canonical string form, always producing exactly 4 fractional digits:
 
-```lean
-instance : ToString Decimal where
+```anchor ToString (module := Cedar.Spec.Ext.Decimal)
+public instance : ToString Decimal where
   toString (d : Decimal) : String :=
     let neg   := if d < 0 then "-" else ""
     let d     := d.natAbs
-    let left  := d / (Nat.pow 10 DECIMAL_DIGITS)
-    let right := d % (Nat.pow 10 DECIMAL_DIGITS)
+    let left  := d / (Nat.pow 10 4)
+    let right := d % (Nat.pow 10 4)
     let right :=
+      -- this is not generalized for arbitrary DECIMAL_DIGITS
       if right < 10 then s!".000{right}"
       else if right < 100 then s!".00{right}"
       else if right < 1000 then s!".0{right}"
