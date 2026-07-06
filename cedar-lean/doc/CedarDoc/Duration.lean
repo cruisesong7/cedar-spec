@@ -111,7 +111,7 @@ none
 
 # Formal Specification
 
-We formalize the validity of an input string by the predicate `IsWfDuration` (well-formed syntax of the grammar) and the function `computeDurationValue` (value function). Unlike the decimal grammar, which splits a string into fixed positional fields, the duration grammar describes an ordered concatenation of optional components, so the specification is phrased over an explicit record of those components.
+We formalize the validity of an input string by the predicate `IsWfDuration` (well-formed syntax of the grammar) and the function `computeValue` (value function). Unlike the decimal grammar, which splits a string into fixed positional fields, the duration grammar describes an ordered concatenation of optional components, so the specification is phrased over an explicit record of those components.
 
 The building block is `IsDigits`, which captures `Digit⁺` — a non-empty string all of whose characters are decimal digits. It lives at the root namespace in `Cedar.Thm.Data.String`, shared with the decimal grammar:
 
@@ -128,10 +128,10 @@ public def IsWfOptionalQuantity : Option String → Prop
   | some digits => IsDigits digits
 ```
 
-A `DurationComponents` record holds the five optional digit strings, one per time unit:
+A `Components` record holds the five optional digit strings, one per time unit:
 
-```anchor DurationComponents (module := Cedar.Thm.Ext.Duration.Grammar)
-public structure DurationComponents where
+```anchor Components (module := Cedar.Thm.Ext.Duration.Grammar)
+public structure Components where
   days : Option String
   hours : Option String
   minutes : Option String
@@ -142,7 +142,7 @@ public structure DurationComponents where
 Two predicates constrain a record. `nonempty` enforces that at least one component is present — the body cannot be empty:
 
 ```anchor nonempty (module := Cedar.Thm.Ext.Duration.Grammar)
-public def DurationComponents.nonempty (components : DurationComponents) : Prop :=
+public def Components.nonempty (components : Components) : Prop :=
   components.days ≠ none ∨
   components.hours ≠ none ∨
   components.minutes ≠ none ∨
@@ -153,8 +153,8 @@ public def DurationComponents.nonempty (components : DurationComponents) : Prop 
 `quantitiesWf` enforces that every present component is a valid digit quantity:
 
 ```anchor quantitiesWf (module := Cedar.Thm.Ext.Duration.Grammar)
-public def DurationComponents.quantitiesWf
-    (components : DurationComponents) : Prop :=
+public def Components.quantitiesWf
+    (components : Components) : Prop :=
   IsWfOptionalQuantity components.days ∧
   IsWfOptionalQuantity components.hours ∧
   IsWfOptionalQuantity components.minutes ∧
@@ -165,7 +165,7 @@ public def DurationComponents.quantitiesWf
 `asString` renders a record back to a string by concatenating the present components in order `d h m s ms`, each absent component contributing `""`. This is what ties the abstract record to the concrete grammar's largest-to-smallest ordering:
 
 ```anchor asString (module := Cedar.Thm.Ext.Duration.Grammar)
-public def DurationComponents.asString (components : DurationComponents) : String :=
+public def Components.asString (components : Components) : String :=
   durationChunk components.days "d" ++
   durationChunk components.hours "h" ++
   durationChunk components.minutes "m" ++
@@ -177,7 +177,7 @@ A body is well-formed exactly when it is the rendering of _some_ record that is 
 
 ```anchor IsWfBody (module := Cedar.Thm.Ext.Duration.Grammar)
 public def IsWfBody (body : String) : Prop :=
-  ∃ components : DurationComponents,
+  ∃ components : Components,
     components.nonempty ∧
     components.quantitiesWf ∧
     body = components.asString
@@ -191,10 +191,10 @@ public def IsWfDuration (str : String) : Prop :=
   ∃ body, str = "-" ++ body ∧ IsWfBody body
 ```
 
-The value function is defined independently of the parser. `extractTrailingDurationQuantity` peels the natural-number token immediately preceding a given suffix (returning junk `(0, s)` when the suffix is absent — harmless on well-formed input):
+The value function is defined independently of the parser. `extractTrailingQuantity` peels the natural-number token immediately preceding a given suffix (returning junk `(0, s)` when the suffix is absent — harmless on well-formed input):
 
-```anchor extractTrailingDurationQuantity (module := Cedar.Thm.Ext.Duration.Grammar)
-public def extractTrailingDurationQuantity (s : String) (suffix : String) : Nat × String :=
+```anchor extractTrailingQuantity (module := Cedar.Thm.Ext.Duration.Grammar)
+public def extractTrailingQuantity (s : String) (suffix : String) : Nat × String :=
   if s.endsWith suffix then
     let rest := (s.dropEnd suffix.length).toString
     let digits := rest.toList.reverse.takeWhile Char.isDigit |>.reverse
@@ -205,15 +205,15 @@ public def extractTrailingDurationQuantity (s : String) (suffix : String) : Nat 
     (0, s)
 ```
 
-`computeDurationBodyValue` extracts each component right-to-left (`ms`, `s`, `m`, `h`, `d`) and combines them into an unsigned millisecond total:
+`computeBodyValue` extracts each component right-to-left (`ms`, `s`, `m`, `h`, `d`) and combines them into an unsigned millisecond total:
 
-```anchor computeDurationBodyValue (module := Cedar.Thm.Ext.Duration.Grammar)
-public def computeDurationBodyValue (body : String) : Int :=
-  let (ms, body) := extractTrailingDurationQuantity body "ms"
-  let (sec, body) := extractTrailingDurationQuantity body "s"
-  let (min, body) := extractTrailingDurationQuantity body "m"
-  let (hr, body) := extractTrailingDurationQuantity body "h"
-  let (day, _) := extractTrailingDurationQuantity body "d"
+```anchor computeBodyValue (module := Cedar.Thm.Ext.Duration.Grammar)
+public def computeBodyValue (body : String) : Int :=
+  let (ms, body) := extractTrailingQuantity body "ms"
+  let (sec, body) := extractTrailingQuantity body "s"
+  let (min, body) := extractTrailingQuantity body "m"
+  let (hr, body) := extractTrailingQuantity body "h"
+  let (day, _) := extractTrailingQuantity body "d"
   ↑day * MILLISECONDS_PER_DAY +
   ↑hr * MILLISECONDS_PER_HOUR +
   ↑min * MILLISECONDS_PER_MINUTE +
@@ -221,19 +221,19 @@ public def computeDurationBodyValue (body : String) : Int :=
   ↑ms
 ```
 
-Finally `computeDurationValue` splits off the sign and applies it to the body's value:
+Finally `computeValue` splits off the sign and applies it to the body's value:
 
-```anchor computeDurationValue (module := Cedar.Thm.Ext.Duration.Grammar)
-public def computeDurationValue (str : String) : Int :=
+```anchor computeValue (module := Cedar.Thm.Ext.Duration.Grammar)
+public def computeValue (str : String) : Int :=
   let (isNegative, body) := isNegativeDuration str
-  computeSignedDurationBodyValue isNegative body
+  computeSignedBodyValue isNegative body
 ```
 
 # Soundness and Completeness
 
 The parser is characterized by two complementary guarantees stated in terms of the previous formal definitions.
 
-_Soundness_ says that whenever parsing succeeds, the input was genuinely valid: it is well-formed, its computed value does not overflow the `Int64` range, and `computeDurationValue` yields exactly the returned duration's value.
+_Soundness_ says that whenever parsing succeeds, the input was genuinely valid: it is well-formed, its computed value does not overflow the `Int64` range, and `computeValue` yields exactly the returned duration's value.
 
 {docstring parse_sound}
 
