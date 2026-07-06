@@ -111,7 +111,7 @@ none
 
 # Formal Specification
 
-We formalize the validity of an input string by the predicate `IsWfDurationStr` (well-formed syntax of the grammar) and the function `computeDurationValue` (value function). Unlike the decimal grammar, which splits a string into fixed positional fields, the duration grammar describes an ordered concatenation of optional components, so the specification is phrased over an explicit record of those components.
+We formalize the validity of an input string by the predicate `IsWfDuration` (well-formed syntax of the grammar) and the function `computeDurationValue` (value function). Unlike the decimal grammar, which splits a string into fixed positional fields, the duration grammar describes an ordered concatenation of optional components, so the specification is phrased over an explicit record of those components.
 
 The building block is `IsDigits`, which captures `Digit⁺` — a non-empty string all of whose characters are decimal digits. It lives at the root namespace in `Cedar.Thm.Data.String`, shared with the decimal grammar:
 
@@ -120,10 +120,10 @@ public def IsDigits (s : String) : Prop :=
   0 < s.length ∧ ∀ c ∈ s.toList, c.isDigit = true
 ```
 
-Each of the five components is optional. `IsOptionalDurationQuantity` lifts `IsDigits` to optional strings — an absent component (`none`) is trivially valid, and a present one must be a non-empty digit string:
+Each of the five components is optional. `IsWfOptionalQuantity` lifts `IsDigits` to optional strings — an absent component (`none`) is trivially valid, and a present one must be a non-empty digit string:
 
-```anchor IsOptionalDurationQuantity (module := Cedar.Thm.Ext.Duration.Grammar)
-public def IsOptionalDurationQuantity : Option String → Prop
+```anchor IsWfOptionalQuantity (module := Cedar.Thm.Ext.Duration.Grammar)
+public def IsWfOptionalQuantity : Option String → Prop
   | none => True
   | some digits => IsDigits digits
 ```
@@ -155,11 +155,11 @@ public def DurationComponents.nonempty (components : DurationComponents) : Prop 
 ```anchor quantitiesWf (module := Cedar.Thm.Ext.Duration.Grammar)
 public def DurationComponents.quantitiesWf
     (components : DurationComponents) : Prop :=
-  IsOptionalDurationQuantity components.days ∧
-  IsOptionalDurationQuantity components.hours ∧
-  IsOptionalDurationQuantity components.minutes ∧
-  IsOptionalDurationQuantity components.seconds ∧
-  IsOptionalDurationQuantity components.milliseconds
+  IsWfOptionalQuantity components.days ∧
+  IsWfOptionalQuantity components.hours ∧
+  IsWfOptionalQuantity components.minutes ∧
+  IsWfOptionalQuantity components.seconds ∧
+  IsWfOptionalQuantity components.milliseconds
 ```
 
 `asString` renders a record back to a string by concatenating the present components in order `d h m s ms`, each absent component contributing `""`. This is what ties the abstract record to the concrete grammar's largest-to-smallest ordering:
@@ -175,8 +175,8 @@ public def DurationComponents.asString (components : DurationComponents) : Strin
 
 A body is well-formed exactly when it is the rendering of _some_ record that is both nonempty and has valid quantities. Phrasing well-formedness existentially over `asString` bakes the ordering constraint in for free: a string is well-formed only if it can be produced by concatenating components in the canonical order, so out-of-order strings have no witnessing record:
 
-```anchor IsWfDurationBody (module := Cedar.Thm.Ext.Duration.Grammar)
-public def IsWfDurationBody (body : String) : Prop :=
+```anchor IsWfBody (module := Cedar.Thm.Ext.Duration.Grammar)
+public def IsWfBody (body : String) : Prop :=
   ∃ components : DurationComponents,
     components.nonempty ∧
     components.quantitiesWf ∧
@@ -185,10 +185,10 @@ public def IsWfDurationBody (body : String) : Prop :=
 
 Well-formedness of the whole string then adds the optional leading `'-'` — either a well-formed body directly, or `'-'` followed by one:
 
-```anchor IsWfDurationStr (module := Cedar.Thm.Ext.Duration.Grammar)
-public def IsWfDurationStr (str : String) : Prop :=
-  IsWfDurationBody str ∨
-  ∃ body, str = "-" ++ body ∧ IsWfDurationBody body
+```anchor IsWfDuration (module := Cedar.Thm.Ext.Duration.Grammar)
+public def IsWfDuration (str : String) : Prop :=
+  IsWfBody str ∨
+  ∃ body, str = "-" ++ body ∧ IsWfBody body
 ```
 
 The value function is defined independently of the parser. `extractTrailingDurationQuantity` peels the natural-number token immediately preceding a given suffix (returning junk `(0, s)` when the suffix is absent — harmless on well-formed input):

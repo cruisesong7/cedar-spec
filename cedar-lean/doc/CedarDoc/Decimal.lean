@@ -94,9 +94,9 @@ none
 
 # Formal Specification
 
-We formalize the validity of input string by the predicate `IsWfStr` (well-formed syntax of the grammar) and the function `computeValue` (value function).
+We formalize the validity of input string by the predicate `IsWfDecimal` (well-formed syntax of the grammar) and the function `computeValue` (value function).
 
-`IsWfStr` is a direct transcription of the grammar's character-level productions. The building block is `IsDigits`, which captures `Digit⁺` — a non-empty string all of whose characters satisfy `Char.isDigit`. It lives at the root namespace in `Cedar.Thm.Data.String`, shared with the duration grammar:
+`IsWfDecimal` is a direct transcription of the grammar's character-level productions. The building block is `IsDigits`, which captures `Digit⁺` — a non-empty string all of whose characters satisfy `Char.isDigit`. It lives at the root namespace in `Cedar.Thm.Data.String`, shared with the duration grammar:
 
 ```anchor IsDigits (module := Cedar.Thm.Data.String)
 public def IsDigits (s : String) : Prop :=
@@ -110,15 +110,21 @@ public def IsWfInt (s : String) : Prop :=
   IsDigits s ∨ ∃ t, s = "-" ++ t ∧ IsDigits t
 ```
 
-Well-formedness of the whole string then reads straight off the grammar — split on `.`, an `Integer` on the left, and a `Digit{1,4}` fraction on the right:
+The fraction part follows `Fraction ::= Digit{1,4}` — `IsDigits` supplies the lower bound (at least one digit) and the length constraint supplies the upper bound:
 
-```anchor IsWfStr (module := Cedar.Thm.Ext.Decimal.Grammar)
-public def IsWfStr (s : String) : Prop :=
+```anchor IsWfFrac (module := Cedar.Thm.Ext.Decimal.Grammar)
+public def IsWfFrac (s : String) : Prop :=
+  IsDigits s ∧ s.length ≤ DECIMAL_DIGITS
+```
+
+Well-formedness of the whole string then reads straight off the grammar — split on `.`, an `Integer` on the left and a `Fraction` on the right:
+
+```anchor IsWfDecimal (module := Cedar.Thm.Ext.Decimal.Grammar)
+public def IsWfDecimal (s : String) : Prop :=
  ∃ left right,
     s.splitToList (· = '.') = [left, right] ∧
     IsWfInt left ∧
-    IsDigits right ∧
-    right.length ≤ DECIMAL_DIGITS
+    IsWfFrac right
 ```
 
 Note that this definition talks only about digit characters — it does not mention the string-to-number parsers `toInt?'`/`toNat?'`. That keeps the specification faithful to the grammar and independent of any parsing implementation. The `computeValue` function below and `Decimal.parse` do use those parsers to extract the numeric value; a family of _bridge lemmas_ (e.g. `toInt?'_isSome_of_isWfInt` and its converse `isWfInt_of_toInt?'_isSome`) connect the two views, proving that a digit string is exactly one the parser accepts.
@@ -199,7 +205,7 @@ Parsing the canonical string representation of any decimal recovers the original
 
 It is a direct corollary of completeness: canonical strings are just a special case of well-formed inputs, so we only need to check that `toString d` _is_ well-formed and that its computed value is `d.toInt`, then hand both to `parse_complete`.
 
-{docstring toString_isWfStr}
+{docstring toString_isWfDecimal}
 
 {docstring computeValue_toString}
 
