@@ -165,12 +165,12 @@ private theorem front_append_of_ne_empty (s t : String) (h : s ≠ "") :
 
 -- A well-formed duration body cannot start with '-'.
 theorem duration_body_front_ne_dash (body : String)
-    (h : IsWfDurationBody body) :
+    (h : IsWfBody body) :
     body.front ≠ '-' := by
   obtain ⟨⟨days, hours, minutes, seconds, milliseconds⟩, hne, hwf, hbody⟩ := h
   subst hbody
   simp only [DurationComponents.asString, DurationComponents.nonempty,
-    DurationComponents.quantitiesWf, IsOptionalDurationQuantity] at hne hwf ⊢
+    DurationComponents.quantitiesWf, IsWfOptionalQuantity] at hne hwf ⊢
   obtain ⟨hwf_d, hwf_h, hwf_m, hwf_s, hwf_ms⟩ := hwf
   rcases days with _ | d
   · rcases hours with _ | hr
@@ -204,7 +204,7 @@ private theorem allDigit_of_isDurationQuantity (d : String)
 -- ═══════════════════════════════════════════════════════════════════════════════
 
 -- A well-formed duration body is always non-empty (it must have at least one component).
-private theorem body_ne_empty_of_wf (body : String) (h : IsWfDurationBody body) :
+private theorem body_ne_empty_of_wf (body : String) (h : IsWfBody body) :
     body ≠ "" := by
   obtain ⟨⟨days, hours, minutes, seconds, milliseconds⟩, hne, _, hbody⟩ := h
   subst hbody
@@ -401,7 +401,7 @@ private theorem extract_reconstruct_step (isNeg : Bool) (s suffix : String) (v :
     Used to prove that `parseDuration?_none_of_not_wf` is the right converse. -/
 theorem wf_of_parseDuration?_eq_some (isNeg : Bool) (body : String) (d : Duration)
     (h : parseDuration? isNeg body = some d) :
-    IsWfDurationBody body := by
+    IsWfBody body := by
   unfold parseDuration? at h
   simp only [bind, Option.bind] at h
   split at h
@@ -493,7 +493,7 @@ theorem wf_of_parseDuration?_eq_some (isNeg : Bool) (body : String) (d : Duratio
                       isDurationQuantity_of_parseUnit?_endsWith isN s suf v' r hpu hew
                     rw [hd'_eq] at hds
                     exact Option.some.inj hds ▸ hd'_wf
-                  unfold reconstructComponents DurationComponents.quantitiesWf IsOptionalDurationQuantity
+                  unfold reconstructComponents DurationComponents.quantitiesWf IsWfOptionalQuantity
                   simp only
                   refine ⟨?_, ?_, ?_, ?_, ?_⟩
                   · split
@@ -729,7 +729,7 @@ private theorem not_endsWith_single_of_last_ne (s : String) (c : Char)
     On well-formed input, each extractTrailingDurationQuantity step peels exactly one component,
     and after all 5 steps nothing remains. -/
 private theorem extract_chain_rest_empty_of_wf (isNeg : Bool) (body : String)
-    (h : IsWfDurationBody body)
+    (h : IsWfBody body)
     (h₁ : parseUnit? isNeg body "ms" = some (v_ms, rest₁))
     (h₂ : parseUnit? isNeg rest₁ "s" = some (v_s, rest₂))
     (h₃ : parseUnit? isNeg rest₂ "m" = some (v_m, rest₃))
@@ -737,7 +737,7 @@ private theorem extract_chain_rest_empty_of_wf (isNeg : Bool) (body : String)
     (h₅ : parseUnit? isNeg rest₄ "d" = some (v_d, rest₅)) :
     rest₅ = "" := by
   obtain ⟨⟨days, hours, minutes, seconds, milliseconds⟩, hne_comp, hwf_q, hbody⟩ := h
-  simp only [DurationComponents.quantitiesWf, IsOptionalDurationQuantity] at hwf_q
+  simp only [DurationComponents.quantitiesWf, IsWfOptionalQuantity] at hwf_q
   have hr₁ := parseUnit?_success_rest isNeg body "ms" v_ms rest₁ h₁
   have hr₂ := parseUnit?_success_rest isNeg rest₁ "s" v_s rest₂ h₂
   have hr₃ := parseUnit?_success_rest isNeg rest₂ "m" v_m rest₃ h₃
@@ -1065,7 +1065,7 @@ private theorem parseUnit?_val_eq_day (isNeg : Bool) (s : String) (v : Int) (res
     computed signed millisecond value. This is the key bridge between the parser and the
     arithmetic semantics. -/
 theorem parseDuration?_eq_duration?_of_wf (isNegative : Bool) (body : String)
-    (h : IsWfDurationBody body) :
+    (h : IsWfBody body) :
     parseDuration? isNegative body = duration? (computeSignedDurationBodyValue isNegative body) := by
   have h_ne : body ≠ "" := body_ne_empty_of_wf body h
   have h_ne_isEmpty : body.isEmpty = false := by
@@ -1095,7 +1095,7 @@ theorem parseDuration?_eq_duration?_of_wf (isNegative : Bool) (body : String)
       -- Empty digits contradicts well-formedness: the ms component must be a non-empty digit string.
       exfalso
       obtain ⟨⟨days, hours, minutes, seconds, milliseconds⟩, _, hwf_q, hbody⟩ := h
-      simp only [DurationComponents.quantitiesWf, IsOptionalDurationQuantity] at hwf_q
+      simp only [DurationComponents.quantitiesWf, IsWfOptionalQuantity] at hwf_q
       cases hms : milliseconds with
       | none =>
         simp only [DurationComponents.asString, durationChunk, hms, String.append_empty] at hbody
@@ -1181,7 +1181,7 @@ theorem parseDuration?_eq_duration?_of_wf (isNegative : Bool) (body : String)
         -- then toNat?' ms_d succeeds (from IsDigits), contradiction.
         exfalso
         obtain ⟨⟨days, hours, minutes, seconds, milliseconds⟩, _, hwf_q, hbody⟩ := h
-        simp only [DurationComponents.quantitiesWf, IsOptionalDurationQuantity] at hwf_q
+        simp only [DurationComponents.quantitiesWf, IsWfOptionalQuantity] at hwf_q
         cases hms : milliseconds with
         | none =>
           -- ms=none: body can't endWith "ms" (same as the digs-empty case)
@@ -1284,7 +1284,7 @@ theorem parseDuration?_eq_duration?_of_wf (isNegative : Bool) (body : String)
         have := parseUnit?_no_endsWith isNegative rest₁ "s" hne
         rw [h₂] at this; simp at this
       obtain ⟨⟨days, hours, minutes, seconds, milliseconds⟩, _, hwf_q, hbody⟩ := h
-      simp only [DurationComponents.quantitiesWf, IsOptionalDurationQuantity] at hwf_q
+      simp only [DurationComponents.quantitiesWf, IsWfOptionalQuantity] at hwf_q
       obtain ⟨hwf_d, hwf_h, hwf_m, hwf_s, hwf_ms⟩ := hwf_q
       subst hbody
       have hrest₁_eq : rest₁ = durationChunk days "d" ++ durationChunk hours "h" ++
@@ -1425,7 +1425,7 @@ theorem parseDuration?_eq_duration?_of_wf (isNegative : Bool) (body : String)
           have := parseUnit?_no_endsWith isNegative rest₂ "m" hne
           rw [h₃] at this; simp at this
         obtain ⟨⟨days, hours, minutes, seconds, milliseconds⟩, _, hwf_q, hbody⟩ := h
-        simp only [DurationComponents.quantitiesWf, IsOptionalDurationQuantity] at hwf_q
+        simp only [DurationComponents.quantitiesWf, IsWfOptionalQuantity] at hwf_q
         obtain ⟨hwf_d, hwf_h, hwf_m, hwf_s, hwf_ms⟩ := hwf_q
         subst hbody
         have hrest₂ : rest₂ = durationChunk days "d" ++ durationChunk hours "h" ++
@@ -1651,7 +1651,7 @@ theorem parseDuration?_eq_duration?_of_wf (isNegative : Bool) (body : String)
             have := parseUnit?_no_endsWith isNegative rest₃ "h" hne
             rw [h₄] at this; simp at this
           obtain ⟨⟨days, hours, minutes, seconds, milliseconds⟩, _, hwf_q, hbody⟩ := h
-          simp only [DurationComponents.quantitiesWf, IsOptionalDurationQuantity] at hwf_q
+          simp only [DurationComponents.quantitiesWf, IsWfOptionalQuantity] at hwf_q
           obtain ⟨hwf_d, hwf_h, hwf_m, hwf_s, hwf_ms⟩ := hwf_q
           subst hbody
           have hrest₃ : rest₃ = durationChunk days "d" ++ durationChunk hours "h" := by
@@ -1915,7 +1915,7 @@ theorem parseDuration?_eq_duration?_of_wf (isNegative : Bool) (body : String)
               have := parseUnit?_no_endsWith isNegative rest₄ "d" hne
               rw [h₅] at this; simp at this
             obtain ⟨⟨days, hours, minutes, seconds, milliseconds⟩, _, hwf_q, hbody⟩ := h
-            simp only [DurationComponents.quantitiesWf, IsOptionalDurationQuantity] at hwf_q
+            simp only [DurationComponents.quantitiesWf, IsWfOptionalQuantity] at hwf_q
             obtain ⟨hwf_d, hwf_h, hwf_m, hwf_s, hwf_ms⟩ := hwf_q
             subst hbody
             have hrest₄ : rest₄ = durationChunk days "d" := by
@@ -2209,7 +2209,7 @@ theorem parseDuration?_eq_duration?_of_wf (isNegative : Bool) (body : String)
 
 /-- `parseDuration?` always returns `none` on a body string that is not well-formed. -/
 theorem parseDuration?_none_of_not_wf (isNegative : Bool) (body : String)
-    (h : ¬ IsWfDurationBody body) :
+    (h : ¬ IsWfBody body) :
     parseDuration? isNegative body = none := by
   cases hparse : parseDuration? isNegative body with
   | none => rfl
@@ -2217,7 +2217,7 @@ theorem parseDuration?_none_of_not_wf (isNegative : Bool) (body : String)
 
 /-- On a well-formed body, `parseDuration?` fails if and only if the computed value overflows Int64. -/
 theorem parseDuration?_eq_none_iff_overflow_of_wf (isNegative : Bool) (body : String)
-    (h : IsWfDurationBody body) :
+    (h : IsWfBody body) :
     parseDuration? isNegative body = none ↔
       computeSignedDurationBodyValue isNegative body < Int64.MIN ∨
         computeSignedDurationBodyValue isNegative body > Int64.MAX := by
@@ -2229,23 +2229,23 @@ theorem parseDuration?_eq_none_iff_overflow_of_wf (isNegative : Bool) (body : St
     `parseDuration?_eq_none_iff_overflow_of_wf` into a single biconditional. -/
 theorem parseDuration?_eq_none_iff (isNegative : Bool) (body : String) :
     parseDuration? isNegative body = none ↔
-      ¬ IsWfDurationBody body ∨
+      ¬ IsWfBody body ∨
         (computeSignedDurationBodyValue isNegative body < Int64.MIN ∨
           computeSignedDurationBodyValue isNegative body > Int64.MAX) := by
-  by_cases hwf : IsWfDurationBody body
+  by_cases hwf : IsWfBody body
   · rw [parseDuration?_eq_none_iff_overflow_of_wf isNegative body hwf]
     simp [hwf]
   · rw [parseDuration?_none_of_not_wf isNegative body hwf]
     simp [hwf]
 
 
-/-- `IsWfDurationStr` on a full duration string is equivalent to `IsWfDurationBody` on its body
+/-- `IsWfDuration` on a full duration string is equivalent to `IsWfBody` on its body
     (the part after stripping any leading `-`). This bridges the string-level and body-level
     well-formedness predicates. -/
 theorem wf_str_iff_signed_body (str : String) :
-    IsWfDurationStr str ↔
+    IsWfDuration str ↔
       let (_, body) := isNegativeDuration str
-      IsWfDurationBody body := by
+      IsWfBody body := by
   by_cases hfront : str.front = '-'
   · have hsplit : isNegativeDuration str = (true, (str.drop 1).copy) := by
       unfold isNegativeDuration
@@ -2275,7 +2275,7 @@ theorem wf_str_iff_signed_body (str : String) :
     · intro hbody
       exact Or.inl hbody
 
-theorem compute_value_eq_signed_body_value (str : String) (_hwf : IsWfDurationStr str) :
+theorem compute_value_eq_signed_body_value (str : String) (_hwf : IsWfDuration str) :
     computeDurationValue str =
       let (isNegative, body) := isNegativeDuration str
       computeSignedDurationBodyValue isNegative body := rfl
@@ -2352,7 +2352,7 @@ private theorem canonicalDurationComponents_nonempty
 private theorem canonicalDurationComponents_quantitiesWf
     (days hours minutes seconds ms : Nat) :
     (canonicalDurationComponents days hours minutes seconds ms).quantitiesWf := by
-  simp [canonicalDurationComponents, DurationComponents.quantitiesWf, IsOptionalDurationQuantity,
+  simp [canonicalDurationComponents, DurationComponents.quantitiesWf, IsWfOptionalQuantity,
     isDurationQuantity_repr]
 
 private theorem canonicalDurationComponents_asString
@@ -2364,7 +2364,7 @@ private theorem canonicalDurationComponents_asString
   simp [String.append_assoc]
 
 theorem canonicalDurationBody_wf (days hours minutes seconds ms : Nat) :
-    IsWfDurationBody (canonicalDurationBody days hours minutes seconds ms) :=
+    IsWfBody (canonicalDurationBody days hours minutes seconds ms) :=
   ⟨canonicalDurationComponents days hours minutes seconds ms,
     canonicalDurationComponents_nonempty days hours minutes seconds ms,
     canonicalDurationComponents_quantitiesWf days hours minutes seconds ms,
