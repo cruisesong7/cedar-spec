@@ -12,7 +12,7 @@ Duration parser theorem surface.
 
 `parse_eq_none_iff` characterizes exactly when parsing rejects a string.
 `parse_sound` and `parse_complete` state the parser soundness and completeness
-properties against `IsWfDurationStr` and `computeDurationValue`.
+properties against `IsWfDuration` and `computeDurationValue`.
 -/
 
 namespace Cedar.Thm.Duration
@@ -23,7 +23,7 @@ open Datetime
     not well-formed or whose computed value overflows the `Int64` range. -/
 public theorem parse_eq_none_iff (str : String) :
     Duration.parse str = none ↔
-    ¬ IsWfDurationStr str ∨
+    ¬ IsWfDuration str ∨
       (computeDurationValue str < Int64.MIN ∨ computeDurationValue str > Int64.MAX) := by
   unfold Duration.parse
   cases hsign : isNegativeDuration str with
@@ -55,12 +55,12 @@ public theorem parse_eq_none_iff (str : String) :
 
 /-- Core completeness of `Duration.parse`: if a string is well-formed, then parsing agrees
     with `duration?` applied to the computed millisecond value. -/
-public theorem parse_eq_duration?_of_wf (str : String) (hwf : IsWfDurationStr str) :
+public theorem parse_eq_duration?_of_wf (str : String) (hwf : IsWfDuration str) :
     Duration.parse str = duration? (computeDurationValue str) := by
   unfold Duration.parse computeDurationValue
   cases hsign : isNegativeDuration str with
   | mk isNegative body =>
-    have hbody : IsWfDurationBody body := by
+    have hbody : IsWfBody body := by
       have h := (wf_str_iff_signed_body str).mp hwf
       simp [hsign] at h
       exact h
@@ -71,10 +71,10 @@ public theorem parse_eq_duration?_of_wf (str : String) (hwf : IsWfDurationStr st
     exactly that computed value. -/
 public theorem parse_sound (str : String) (d : Duration)
     (h : Duration.parse str = some d) :
-    IsWfDurationStr str ∧
+    IsWfDuration str ∧
       ¬ (computeDurationValue str < Int64.MIN ∨ computeDurationValue str > Int64.MAX) ∧
       computeDurationValue str = d.val.toInt := by
-  have hwf : IsWfDurationStr str := by
+  have hwf : IsWfDuration str := by
     by_contra hnot
     have hnone : Duration.parse str = none := (parse_eq_none_iff str).mpr (Or.inl hnot)
     rw [h] at hnone
@@ -94,7 +94,7 @@ public theorem parse_sound (str : String) (d : Duration)
     does not overflow the `Int64` range, then parsing accepts the string as a duration
     with exactly that computed value. -/
 public theorem parse_complete (str : String)
-    (hwf : IsWfDurationStr str)
+    (hwf : IsWfDuration str)
     (hnoOverflow :
       ¬ (computeDurationValue str < Int64.MIN ∨ computeDurationValue str > Int64.MAX)) :
     ∃ d, Duration.parse str = some d ∧ computeDurationValue str = d.val.toInt := by
@@ -132,7 +132,7 @@ public theorem parse_neg (s : String) (d : Duration)
   unfold Duration.parse at h ⊢
   simp [hs_pos] at h
   simp [hs_neg]
-  have hwf : IsWfDurationBody s := wf_of_parseDuration?_eq_some false s d h
+  have hwf : IsWfBody s := wf_of_parseDuration?_eq_some false s d h
   rw [parseDuration?_eq_duration?_of_wf true s hwf]
   rw [parseDuration?_eq_duration?_of_wf false s hwf] at h
   unfold computeSignedDurationBodyValue at h ⊢
@@ -170,7 +170,7 @@ public theorem parse_toString_roundtrip (d : Duration) :
   let seconds := rem₃ / MILLISECONDS_PER_SECOND.toNat
   let ms := rem₃ % MILLISECONDS_PER_SECOND.toNat
   let body := canonicalDurationBody days hours minutes seconds ms
-  have hbody_wf : IsWfDurationBody body := canonicalDurationBody_wf days hours minutes seconds ms
+  have hbody_wf : IsWfBody body := canonicalDurationBody_wf days hours minutes seconds ms
   have hbody_value :
       computeDurationBodyValue body =
         (days : Int) * MILLISECONDS_PER_DAY +
