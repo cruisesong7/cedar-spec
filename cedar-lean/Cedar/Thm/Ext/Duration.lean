@@ -12,7 +12,7 @@ Duration parser theorem surface.
 
 `parse_eq_none_iff` characterizes exactly when parsing rejects a string.
 `parse_sound` and `parse_complete` state the parser soundness and completeness
-properties against `IsWfDuration` and `computeDurationValue`.
+properties against `IsWfDuration` and `computeValue`.
 -/
 
 namespace Cedar.Thm.Duration
@@ -24,7 +24,7 @@ open Datetime
 public theorem parse_eq_none_iff (str : String) :
     Duration.parse str = none ↔
     ¬ IsWfDuration str ∨
-      (computeDurationValue str < Int64.MIN ∨ computeDurationValue str > Int64.MAX) := by
+      (computeValue str < Int64.MIN ∨ computeValue str > Int64.MAX) := by
   unfold Duration.parse
   cases hsign : isNegativeDuration str with
   | mk isNegative body =>
@@ -40,8 +40,8 @@ public theorem parse_eq_none_iff (str : String) :
       · right
         have hvalue := compute_value_eq_signed_body_value str
         simp only [hsign] at hvalue
-        rw [show computeDurationValue str = computeSignedDurationBodyValue isNegative body from by
-          unfold computeDurationValue; simp [hsign]]
+        rw [show computeValue str = computeSignedBodyValue isNegative body from by
+          unfold computeValue; simp [hsign]]
         exact hoverflow
     · intro h
       rcases h with hstr | hoverflow
@@ -49,15 +49,15 @@ public theorem parse_eq_none_iff (str : String) :
         intro hbody
         exact hstr (hwf.mpr hbody)
       · right
-        rw [show computeDurationValue str = computeSignedDurationBodyValue isNegative body from by
-          unfold computeDurationValue; simp [hsign]] at hoverflow
+        rw [show computeValue str = computeSignedBodyValue isNegative body from by
+          unfold computeValue; simp [hsign]] at hoverflow
         exact hoverflow
 
 /-- Core completeness of `Duration.parse`: if a string is well-formed, then parsing agrees
     with `duration?` applied to the computed millisecond value. -/
 public theorem parse_eq_duration?_of_wf (str : String) (hwf : IsWfDuration str) :
-    Duration.parse str = duration? (computeDurationValue str) := by
-  unfold Duration.parse computeDurationValue
+    Duration.parse str = duration? (computeValue str) := by
+  unfold Duration.parse computeValue
   cases hsign : isNegativeDuration str with
   | mk isNegative body =>
     have hbody : IsWfBody body := by
@@ -72,23 +72,23 @@ public theorem parse_eq_duration?_of_wf (str : String) (hwf : IsWfDuration str) 
 public theorem parse_sound (str : String) (d : Duration)
     (h : Duration.parse str = some d) :
     IsWfDuration str ∧
-      ¬ (computeDurationValue str < Int64.MIN ∨ computeDurationValue str > Int64.MAX) ∧
-      computeDurationValue str = d.val.toInt := by
+      ¬ (computeValue str < Int64.MIN ∨ computeValue str > Int64.MAX) ∧
+      computeValue str = d.val.toInt := by
   have hwf : IsWfDuration str := by
     by_contra hnot
     have hnone : Duration.parse str = none := (parse_eq_none_iff str).mpr (Or.inl hnot)
     rw [h] at hnone
     contradiction
   have hnoOverflow :
-      ¬ (computeDurationValue str < Int64.MIN ∨ computeDurationValue str > Int64.MAX) := by
+      ¬ (computeValue str < Int64.MIN ∨ computeValue str > Int64.MAX) := by
     intro hoverflow
     have hnone : Duration.parse str = none := (parse_eq_none_iff str).mpr (Or.inr hoverflow)
     rw [h] at hnone
     contradiction
-  have hsome : duration? (computeDurationValue str) = some d := by
+  have hsome : duration? (computeValue str) = some d := by
     rw [← parse_eq_duration?_of_wf str hwf]
     exact h
-  exact ⟨hwf, hnoOverflow, (duration?_some_toInt (computeDurationValue str) d hsome).symm⟩
+  exact ⟨hwf, hnoOverflow, (duration?_some_toInt (computeValue str) d hsome).symm⟩
 
 /-- Completeness of `Duration.parse`: if a string is well-formed and its computed value
     does not overflow the `Int64` range, then parsing accepts the string as a duration
@@ -96,8 +96,8 @@ public theorem parse_sound (str : String) (d : Duration)
 public theorem parse_complete (str : String)
     (hwf : IsWfDuration str)
     (hnoOverflow :
-      ¬ (computeDurationValue str < Int64.MIN ∨ computeDurationValue str > Int64.MAX)) :
-    ∃ d, Duration.parse str = some d ∧ computeDurationValue str = d.val.toInt := by
+      ¬ (computeValue str < Int64.MIN ∨ computeValue str > Int64.MAX)) :
+    ∃ d, Duration.parse str = some d ∧ computeValue str = d.val.toInt := by
   cases hparse : Duration.parse str with
   | none =>
     have hfail := (parse_eq_none_iff str).mp hparse
@@ -135,10 +135,10 @@ public theorem parse_neg (s : String) (d : Duration)
   have hwf : IsWfBody s := wf_of_parseDuration?_eq_some false s d h
   rw [parseDuration?_eq_duration?_of_wf true s hwf]
   rw [parseDuration?_eq_duration?_of_wf false s hwf] at h
-  unfold computeSignedDurationBodyValue at h ⊢
+  unfold computeSignedBodyValue at h ⊢
   simp at h ⊢
-  have hvalue : d.val.toInt = computeDurationBodyValue s :=
-    duration?_some_toInt (computeDurationBodyValue s) d h
+  have hvalue : d.val.toInt = computeBodyValue s :=
+    duration?_some_toInt (computeBodyValue s) d h
   rw [← hvalue]
 
 /-- `offset` and `durationSince` are inverses: adding a duration then computing
@@ -169,10 +169,10 @@ public theorem parse_toString_roundtrip (d : Duration) :
   let rem₃ := rem₂ % MILLISECONDS_PER_MINUTE.toNat
   let seconds := rem₃ / MILLISECONDS_PER_SECOND.toNat
   let ms := rem₃ % MILLISECONDS_PER_SECOND.toNat
-  let body := canonicalDurationBody days hours minutes seconds ms
+  let body := canonicalBody days hours minutes seconds ms
   have hbody_wf : IsWfBody body := canonicalDurationBody_wf days hours minutes seconds ms
   have hbody_value :
-      computeDurationBodyValue body =
+      computeBodyValue body =
         (days : Int) * MILLISECONDS_PER_DAY +
         (hours : Int) * MILLISECONDS_PER_HOUR +
         (minutes : Int) * MILLISECONDS_PER_MINUTE +
@@ -189,7 +189,7 @@ public theorem parse_toString_roundtrip (d : Duration) :
     exact durationParts_value_int totalMs
   have htoString :
       Duration.toString d = if d.val < 0 then "-" ++ body else body := by
-    simp [Duration.toString, body, canonicalDurationBody, durationComponent,
+    simp [Duration.toString, body, canonicalBody, durationComponent,
       Datetime.durationComponent, days, hours, minutes, seconds, ms, rem₁, rem₂,
       rem₃, totalMs]
   rw [htoString]
@@ -197,7 +197,7 @@ public theorem parse_toString_roundtrip (d : Duration) :
   by_cases hneg : d.val < 0
   · simp [hneg, isNegativeDuration_neg_body]
     rw [parseDuration?_eq_duration?_of_wf true body hbody_wf]
-    unfold computeSignedDurationBodyValue
+    unfold computeSignedBodyValue
     rw [hbody_value, hparts]
     have htoInt_neg : -((totalMs : Nat) : Int) = d.val.toInt := by
       have hlt : d.val.toInt < 0 := by simpa [Int64.lt_def_toInt] using hneg
@@ -208,7 +208,7 @@ public theorem parse_toString_roundtrip (d : Duration) :
   · have hfront : body.front ≠ '-' := duration_body_front_ne_dash body hbody_wf
     simp [hneg, isNegativeDuration_canonical_body body hfront]
     rw [parseDuration?_eq_duration?_of_wf false body hbody_wf]
-    unfold computeSignedDurationBodyValue
+    unfold computeSignedBodyValue
     rw [hbody_value, hparts]
     have htoInt_nonneg : ((totalMs : Nat) : Int) = d.val.toInt := by
       have hle : ¬ d.val.toInt < 0 := by

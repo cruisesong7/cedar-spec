@@ -39,18 +39,18 @@ public def IsWfOptionalQuantity : Option String → Prop
 
 /-- The five optional digit-string components of a duration body, one per time unit.
     Each field holds `none` (unit absent) or `some digits` (unit present with that value). -/
--- ANCHOR: DurationComponents
-public structure DurationComponents where
+-- ANCHOR: Components
+public structure Components where
   days : Option String
   hours : Option String
   minutes : Option String
   seconds : Option String
   milliseconds : Option String
--- ANCHOR_END: DurationComponents
+-- ANCHOR_END: Components
 
 /-- At least one component must be present (the body cannot be empty). -/
 -- ANCHOR: nonempty
-public def DurationComponents.nonempty (components : DurationComponents) : Prop :=
+public def Components.nonempty (components : Components) : Prop :=
   components.days ≠ none ∨
   components.hours ≠ none ∨
   components.minutes ≠ none ∨
@@ -60,8 +60,8 @@ public def DurationComponents.nonempty (components : DurationComponents) : Prop 
 
 /-- Every present component must be a valid duration quantity (nonempty, parseable digits). -/
 -- ANCHOR: quantitiesWf
-public def DurationComponents.quantitiesWf
-    (components : DurationComponents) : Prop :=
+public def Components.quantitiesWf
+    (components : Components) : Prop :=
   IsWfOptionalQuantity components.days ∧
   IsWfOptionalQuantity components.hours ∧
   IsWfOptionalQuantity components.minutes ∧
@@ -72,7 +72,7 @@ public def DurationComponents.quantitiesWf
 /-- Canonical string representation: concatenate present components in order `d h m s ms`.
     Absent components contribute `""`. -/
 -- ANCHOR: asString
-public def DurationComponents.asString (components : DurationComponents) : String :=
+public def Components.asString (components : Components) : String :=
   durationChunk components.days "d" ++
   durationChunk components.hours "h" ++
   durationChunk components.minutes "m" ++
@@ -82,8 +82,8 @@ public def DurationComponents.asString (components : DurationComponents) : Strin
 
 /-- Canonical maximized components for a duration value split into days, hours, minutes,
     seconds, and milliseconds. All five fields are present, including zero-valued fields. -/
-public def canonicalDurationComponents (days hours minutes seconds ms : Nat) :
-    DurationComponents :=
+public def canonicalComponents (days hours minutes seconds ms : Nat) :
+    Components :=
   { days := some (toString days)
     hours := some (toString hours)
     minutes := some (toString minutes)
@@ -92,16 +92,16 @@ public def canonicalDurationComponents (days hours minutes seconds ms : Nat) :
 
 /-- Canonical maximized duration body: `days d`, `hours h`, `minutes m`, `seconds s`,
     and `milliseconds ms`, printed largest-to-smallest. -/
-public def canonicalDurationBody (days hours minutes seconds ms : Nat) : String :=
+public def canonicalBody (days hours minutes seconds ms : Nat) : String :=
   durationComponent days "d" ++ durationComponent hours "h" ++
     durationComponent minutes "m" ++ durationComponent seconds "s" ++
     durationComponent ms "ms"
 
 /-- A duration body string is well-formed iff it equals `components.asString` for some
-    `DurationComponents` that is nonempty and has valid quantities. -/
+    `Components` that is nonempty and has valid quantities. -/
 -- ANCHOR: IsWfBody
 public def IsWfBody (body : String) : Prop :=
-  ∃ components : DurationComponents,
+  ∃ components : Components,
     components.nonempty ∧
     components.quantitiesWf ∧
     body = components.asString
@@ -117,8 +117,8 @@ public def IsWfDuration (str : String) : Prop :=
 
 /-- Extract the trailing natural-number token immediately before a duration suffix.
     Returns `(0, s)` as a junk value when the suffix is absent or digits fail to parse. -/
--- ANCHOR: extractTrailingDurationQuantity
-public def extractTrailingDurationQuantity (s : String) (suffix : String) : Nat × String :=
+-- ANCHOR: extractTrailingQuantity
+public def extractTrailingQuantity (s : String) (suffix : String) : Nat × String :=
   if s.endsWith suffix then
     let rest := (s.dropEnd suffix.length).toString
     let digits := rest.toList.reverse.takeWhile Char.isDigit |>.reverse
@@ -127,36 +127,36 @@ public def extractTrailingDurationQuantity (s : String) (suffix : String) : Nat 
     | none => (0, s)
   else
     (0, s)
--- ANCHOR_END: extractTrailingDurationQuantity
+-- ANCHOR_END: extractTrailingQuantity
 
 /-- Compute the unsigned millisecond total of a duration body by extracting each component
     right-to-left (ms, s, m, h, d). Only meaningful on well-formed input. -/
--- ANCHOR: computeDurationBodyValue
-public def computeDurationBodyValue (body : String) : Int :=
-  let (ms, body) := extractTrailingDurationQuantity body "ms"
-  let (sec, body) := extractTrailingDurationQuantity body "s"
-  let (min, body) := extractTrailingDurationQuantity body "m"
-  let (hr, body) := extractTrailingDurationQuantity body "h"
-  let (day, _) := extractTrailingDurationQuantity body "d"
+-- ANCHOR: computeBodyValue
+public def computeBodyValue (body : String) : Int :=
+  let (ms, body) := extractTrailingQuantity body "ms"
+  let (sec, body) := extractTrailingQuantity body "s"
+  let (min, body) := extractTrailingQuantity body "m"
+  let (hr, body) := extractTrailingQuantity body "h"
+  let (day, _) := extractTrailingQuantity body "d"
   ↑day * MILLISECONDS_PER_DAY +
   ↑hr * MILLISECONDS_PER_HOUR +
   ↑min * MILLISECONDS_PER_MINUTE +
   ↑sec * MILLISECONDS_PER_SECOND +
   ↑ms
--- ANCHOR_END: computeDurationBodyValue
+-- ANCHOR_END: computeBodyValue
 
 /-- Compute the signed millisecond value: negates the unsigned total when `isNegative`. -/
-public def computeSignedDurationBodyValue (isNegative : Bool) (body : String) : Int :=
-  let value := computeDurationBodyValue body
+public def computeSignedBodyValue (isNegative : Bool) (body : String) : Int :=
+  let value := computeBodyValue body
   if isNegative then -value else value
 
 /-- Compute the total signed millisecond value of a full duration string,
     first splitting off the sign via `isNegativeDuration`. -/
--- ANCHOR: computeDurationValue
-public def computeDurationValue (str : String) : Int :=
+-- ANCHOR: computeValue
+public def computeValue (str : String) : Int :=
   let (isNegative, body) := isNegativeDuration str
-  computeSignedDurationBodyValue isNegative body
--- ANCHOR_END: computeDurationValue
+  computeSignedBodyValue isNegative body
+-- ANCHOR_END: computeValue
 
 /-- Canonical-form normalizer: parse the string and re-serialize.
     Returns `none` for malformed or out-of-range inputs. -/
