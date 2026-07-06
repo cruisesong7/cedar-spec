@@ -199,7 +199,7 @@ For example, the canonical string representation of a decimal with internal valu
 
 # Roundtrip Theorem
 
-Parsing the canonical string representation of any decimal recovers the original value. This is the headline user-facing property — `parse` and `toString` are mutually inverse on decimals — and it is what underpins `toString_injective` above.
+Parsing the canonical string representation of any decimal recovers the original value.
 
 {docstring parse_toString_roundtrip}
 
@@ -209,4 +209,4 @@ It is a direct corollary of completeness: canonical strings are just a special c
 
 {docstring computeValue_toString}
 
-Though only a corollary, roundtrip guards against parser bugs on _valid_ inputs — cases soundness and the failure characterization, aimed at rejecting _invalid_ inputs, never exercise. For example, every decimal in `(-1, 0)` serializes to a `-0.xxxx` string (value `-5000` becomes `"-0.5000"`), so roundtrip must parse these back exactly. An earlier parser derived the sign from the integer part's value, where `int("-0") = 0` dropped the negative and turned `-0.5000` into `+0.5000`. Because the sign is instead keyed on a leading `'-'`, this bug would make roundtrip unprovable — the proof rules it out.
+Though only a corollary, roundtrip guards against parser bugs on _valid_ inputs — cases soundness and the failure characterization, aimed at rejecting _invalid_ inputs, never exercise. For example, every decimal in `(-1, 0)` serializes to a `-0.xxxx` string (value `-5000` becomes `"-0.5000"`), so roundtrip must parse these back exactly. An earlier parser derived the sign from the integer part's value, where `int("-0") = 0` dropped the negative and turned `-0.5000` into `+0.5000`. The existence of such a bug would have violated the roundtrip property; in other words, the proof we now have rules it out.
