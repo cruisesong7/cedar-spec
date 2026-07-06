@@ -31,7 +31,7 @@ public def durationComponent (n : Nat) (suffix : String) : String :=
 
 /-- Lift the `Digit⁺` quantity-token predicate (`IsDigits`) to optional components:
     `none` is trivially valid. -/
-public def IsOptionalDurationQuantity : Option String → Prop
+public def IsWfOptionalQuantity : Option String → Prop
   | none => True
   | some digits => IsDigits digits
 
@@ -55,11 +55,11 @@ public def DurationComponents.nonempty (components : DurationComponents) : Prop 
 /-- Every present component must be a valid duration quantity (nonempty, parseable digits). -/
 public def DurationComponents.quantitiesWf
     (components : DurationComponents) : Prop :=
-  IsOptionalDurationQuantity components.days ∧
-  IsOptionalDurationQuantity components.hours ∧
-  IsOptionalDurationQuantity components.minutes ∧
-  IsOptionalDurationQuantity components.seconds ∧
-  IsOptionalDurationQuantity components.milliseconds
+  IsWfOptionalQuantity components.days ∧
+  IsWfOptionalQuantity components.hours ∧
+  IsWfOptionalQuantity components.minutes ∧
+  IsWfOptionalQuantity components.seconds ∧
+  IsWfOptionalQuantity components.milliseconds
 
 /-- Canonical string representation: concatenate present components in order `d h m s ms`.
     Absent components contribute `""`. -/
@@ -89,7 +89,7 @@ public def canonicalDurationBody (days hours minutes seconds ms : Nat) : String 
 
 /-- A duration body string is well-formed iff it equals `components.asString` for some
     `DurationComponents` that is nonempty and has valid quantities. -/
-public def IsWfDurationBody (body : String) : Prop :=
+public def IsWfBody (body : String) : Prop :=
   ∃ components : DurationComponents,
     components.nonempty ∧
     components.quantitiesWf ∧
@@ -97,9 +97,9 @@ public def IsWfDurationBody (body : String) : Prop :=
 
 /-- A duration string is well-formed iff it is either a well-formed body directly,
     or `"-"` followed by a well-formed body. -/
-public def IsWfDurationStr (str : String) : Prop :=
-  IsWfDurationBody str ∨
-  ∃ body, str = "-" ++ body ∧ IsWfDurationBody body
+public def IsWfDuration (str : String) : Prop :=
+  IsWfBody str ∨
+  ∃ body, str = "-" ++ body ∧ IsWfBody body
 
 /-- Extract the trailing natural-number token immediately before a duration suffix.
     Returns `(0, s)` as a junk value when the suffix is absent or digits fail to parse. -/
