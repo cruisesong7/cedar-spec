@@ -148,11 +148,11 @@ This is a literal transcription of the grammar's value function: `int(Integer) �
 
 The parser is characterized by two complementary guarantees stated in terms of the previous formal definitions.
 
-_Soundness_ says that whenever parsing succeeds, the input was genuinely valid: it is well-formed, `computeValue` yields exactly the returned decimal's value, and that value lies within the `Int64` range.
+_Soundness_ says that whenever parsing succeeds, the input was genuinely valid: it is well-formed and `computeValue` yields exactly the returned decimal's value. (The range constraint is implicit — `d.toInt` is always in `Int64` range, since `d` is an `Int64`.)
 
 {docstring parse_sound}
 
-_Completeness_ is the converse: every well-formed string whose computed value is `some d.toInt` is accepted as that decimal. (The range constraint is implicit here — `d.toInt` is always in range.)
+_Completeness_ is the converse: every well-formed string whose computed value is `some d.toInt` is accepted as that decimal. (Again the range constraint is implicit — `d.toInt` is always in range.)
 
 {docstring parse_complete}
 

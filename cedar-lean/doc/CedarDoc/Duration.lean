@@ -191,40 +191,40 @@ public def IsWfDuration (str : String) : Prop :=
   ∃ body, str = "-" ++ body ∧ IsWfBody body
 ```
 
-The value function is defined independently of the parser. `extractTrailingQuantity` peels the natural-number token immediately preceding a given suffix (returning junk `(0, s)` when the suffix is absent — harmless on well-formed input):
+The value function is defined independently of the parser. `extractTrailingQuantity` peels the natural-number token immediately preceding a given suffix. When the suffix is absent the component is simply not present, so it yields `some (0, s)`; when the suffix is present but its digits are missing or unparseable the string is malformed, so it yields `none` — mirroring the spec's `parseUnit?` failure structure:
 
 ```anchor extractTrailingQuantity (module := Cedar.Thm.Ext.Duration.Grammar)
-public def extractTrailingQuantity (s : String) (suffix : String) : Nat × String :=
+public def extractTrailingQuantity (s : String) (suffix : String) : Option (Nat × String) :=
   if s.endsWith suffix then
     let rest := (s.dropEnd suffix.length).toString
     let digits := rest.toList.reverse.takeWhile Char.isDigit |>.reverse
     match toNat?' (String.ofList digits) with
-    | some n => (n, (rest.dropEnd digits.length).toString)
-    | none => (0, s)
+    | some n => some (n, (rest.dropEnd digits.length).toString)
+    | none => none
   else
-    (0, s)
+    some (0, s)
 ```
 
-`computeBodyValue` extracts each component right-to-left (`ms`, `s`, `m`, `h`, `d`) and combines them into an unsigned millisecond total:
+`computeBodyValue` extracts each component right-to-left (`ms`, `s`, `m`, `h`, `d`) and combines them into an unsigned millisecond total, failing (`none`) if any present component is unparseable:
 
 ```anchor computeBodyValue (module := Cedar.Thm.Ext.Duration.Grammar)
-public def computeBodyValue (body : String) : Int :=
-  let (ms, body) := extractTrailingQuantity body "ms"
-  let (sec, body) := extractTrailingQuantity body "s"
-  let (min, body) := extractTrailingQuantity body "m"
-  let (hr, body) := extractTrailingQuantity body "h"
-  let (day, _) := extractTrailingQuantity body "d"
-  ↑day * MILLISECONDS_PER_DAY +
-  ↑hr * MILLISECONDS_PER_HOUR +
-  ↑min * MILLISECONDS_PER_MINUTE +
-  ↑sec * MILLISECONDS_PER_SECOND +
-  ↑ms
+public def computeBodyValue (body : String) : Option Int := do
+  let (ms, body) ← extractTrailingQuantity body "ms"
+  let (sec, body) ← extractTrailingQuantity body "s"
+  let (min, body) ← extractTrailingQuantity body "m"
+  let (hr, body) ← extractTrailingQuantity body "h"
+  let (day, _) ← extractTrailingQuantity body "d"
+  some (↑day * MILLISECONDS_PER_DAY +
+    ↑hr * MILLISECONDS_PER_HOUR +
+    ↑min * MILLISECONDS_PER_MINUTE +
+    ↑sec * MILLISECONDS_PER_SECOND +
+    ↑ms)
 ```
 
-Finally `computeValue` splits off the sign and applies it to the body's value:
+Finally `computeValue` splits off the sign and applies it to the body's value, propagating `none` when the body is structurally unparseable:
 
 ```anchor computeValue (module := Cedar.Thm.Ext.Duration.Grammar)
-public def computeValue (str : String) : Int :=
+public def computeValue (str : String) : Option Int :=
   let (isNegative, body) := isNegativeDuration str
   computeSignedBodyValue isNegative body
 ```
@@ -233,11 +233,11 @@ public def computeValue (str : String) : Int :=
 
 The parser is characterized by two complementary guarantees stated in terms of the previous formal definitions.
 
-_Soundness_ says that whenever parsing succeeds, the input was genuinely valid: it is well-formed, its computed value does not overflow the `Int64` range, and `computeValue` yields exactly the returned duration's value.
+_Soundness_ says that whenever parsing succeeds, the input was genuinely valid: it is well-formed and `computeValue` yields exactly the returned duration's value. (The range constraint is implicit — `d.val.toInt` is always in `Int64` range, since `d.val` is an `Int64`.)
 
 {docstring parse_sound}
 
-_Completeness_ is the converse: every well-formed string whose computed value is in range is accepted as a duration with exactly that value.
+_Completeness_ is the converse: every well-formed string whose computed value is `some d.val.toInt` is accepted as that duration. (Again the range constraint is implicit — `d.val.toInt` is always in range.)
 
 {docstring parse_complete}
 
