@@ -116,44 +116,45 @@ public def IsWfDuration (str : String) : Prop :=
 -- ANCHOR_END: IsWfDuration
 
 /-- Extract the trailing natural-number token immediately before a duration suffix.
-    Returns `(0, s)` as a junk value when the suffix is absent or digits fail to parse. -/
+    When the suffix is absent the component is simply not present, so this yields `(0, s)`;
+    when the suffix is present but the preceding digits are missing or unparseable the string is
+    malformed, so this yields `none`. Mirrors the spec's `parseUnit?` failure structure. -/
 -- ANCHOR: extractTrailingQuantity
-public def extractTrailingQuantity (s : String) (suffix : String) : Nat × String :=
+public def extractTrailingQuantity (s : String) (suffix : String) : Option (Nat × String) :=
   if s.endsWith suffix then
     let rest := (s.dropEnd suffix.length).toString
     let digits := rest.toList.reverse.takeWhile Char.isDigit |>.reverse
     match toNat?' (String.ofList digits) with
-    | some n => (n, (rest.dropEnd digits.length).toString)
-    | none => (0, s)
+    | some n => some (n, (rest.dropEnd digits.length).toString)
+    | none => none
   else
-    (0, s)
+    some (0, s)
 -- ANCHOR_END: extractTrailingQuantity
 
 /-- Compute the unsigned millisecond total of a duration body by extracting each component
-    right-to-left (ms, s, m, h, d). Only meaningful on well-formed input. -/
+    right-to-left (ms, s, m, h, d), failing (`none`) if any present component is unparseable. -/
 -- ANCHOR: computeBodyValue
-public def computeBodyValue (body : String) : Int :=
-  let (ms, body) := extractTrailingQuantity body "ms"
-  let (sec, body) := extractTrailingQuantity body "s"
-  let (min, body) := extractTrailingQuantity body "m"
-  let (hr, body) := extractTrailingQuantity body "h"
-  let (day, _) := extractTrailingQuantity body "d"
-  ↑day * MILLISECONDS_PER_DAY +
-  ↑hr * MILLISECONDS_PER_HOUR +
-  ↑min * MILLISECONDS_PER_MINUTE +
-  ↑sec * MILLISECONDS_PER_SECOND +
-  ↑ms
+public def computeBodyValue (body : String) : Option Int := do
+  let (ms, body) ← extractTrailingQuantity body "ms"
+  let (sec, body) ← extractTrailingQuantity body "s"
+  let (min, body) ← extractTrailingQuantity body "m"
+  let (hr, body) ← extractTrailingQuantity body "h"
+  let (day, _) ← extractTrailingQuantity body "d"
+  some (↑day * MILLISECONDS_PER_DAY +
+    ↑hr * MILLISECONDS_PER_HOUR +
+    ↑min * MILLISECONDS_PER_MINUTE +
+    ↑sec * MILLISECONDS_PER_SECOND +
+    ↑ms)
 -- ANCHOR_END: computeBodyValue
 
 /-- Compute the signed millisecond value: negates the unsigned total when `isNegative`. -/
-public def computeSignedBodyValue (isNegative : Bool) (body : String) : Int :=
-  let value := computeBodyValue body
-  if isNegative then -value else value
+public def computeSignedBodyValue (isNegative : Bool) (body : String) : Option Int :=
+  (computeBodyValue body).map (fun value => if isNegative then -value else value)
 
-/-- Compute the total signed millisecond value of a full duration string,
-    first splitting off the sign via `isNegativeDuration`. -/
+/-- Compute the total signed millisecond value of a full duration string, first splitting off the
+    sign via `isNegativeDuration`. Returns `none` when the body is structurally unparseable. -/
 -- ANCHOR: computeValue
-public def computeValue (str : String) : Int :=
+public def computeValue (str : String) : Option Int :=
   let (isNegative, body) := isNegativeDuration str
   computeSignedBodyValue isNegative body
 -- ANCHOR_END: computeValue
