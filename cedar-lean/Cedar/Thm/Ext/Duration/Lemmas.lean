@@ -1279,23 +1279,6 @@ private theorem neg_bound_of_int64_overflow (isNeg : Bool) (n : Nat)
 -- Helper lemmas: relating parseUnit? output values to signedQuantity * multiplier
 -- ═══════════════════════════════════════════════════════════════════════════════
 
--- Int64.ofInt? roundtrip: when successful, coercion back to Int gives original value.
-private theorem int64_ofInt?_toInt (n : Int) (i : Int64) (h : Int64.ofInt? n = some i) :
-    (i : Int) = n := by
-  have hrange : Int64.MIN ≤ n ∧ n ≤ Int64.MAX := by
-    by_contra hne
-    have hout : n < Int64.MIN ∨ n > Int64.MAX := by
-      simp only [Int64.MIN, Int64.MAX] at hne ⊢; omega
-    have hbad : Int64.ofInt? n = none := (Int64.ofInt?_none_iff (i := n)).mp hout
-    rw [hbad] at h; exact absurd h (by simp)
-  have hsomeiff : Int64.ofInt? n = some (Int64.ofInt n) :=
-    (Int64.ofInt?_some_iff (i := n)).mp hrange
-  rw [hsomeiff] at h
-  have h_eq : i = Int64.ofInt n := (Option.some.inj h).symm
-  subst h_eq
-  show (Int64.ofInt n).toInt = n
-  rw [Int64.toInt_ofInt]; simp only [Int64.MIN, Int64.MAX] at hrange; simp [Int.bmod]; omega
-
 -- parseUnit? value = signedQuantity isNeg (extract ..).1 for "ms"
 private theorem parseUnit?_val_eq_ms (isNeg : Bool) (s : String) (v : Int) (rest : String)
     (hp : parseUnit? isNeg s "ms" = some (v, rest)) :
@@ -1311,7 +1294,7 @@ private theorem parseUnit?_val_eq_ms (isNeg : Bool) (s : String) (v : Int) (rest
     cases hᵢ : Int64.ofInt? (signedQuantity isNeg n) with
     | none => rw [hᵢ] at hn_du; simp at hn_du
     | some i => rw [hᵢ] at hn_du; simp at hn_du
-                have hi := int64_ofInt?_toInt (signedQuantity isNeg n) i hᵢ; omega
+                have hi := Int64.ofInt?_some_toInt hᵢ; omega
 
 -- parseUnit? value = signedQuantity isNeg (extract ..).1 * MILLISECONDS_PER_SECOND for "s"
 private theorem parseUnit?_val_eq_s (isNeg : Bool) (s : String) (v : Int) (rest : String)
@@ -1329,7 +1312,7 @@ private theorem parseUnit?_val_eq_s (isNeg : Bool) (s : String) (v : Int) (rest 
     cases hᵢ : Int64.ofInt? (signedQuantity isNeg n) with
     | none => rw [hᵢ] at hn_du; simp at hn_du
     | some i => rw [hᵢ] at hn_du; simp at hn_du
-                have hi := int64_ofInt?_toInt (signedQuantity isNeg n) i hᵢ
+                have hi := Int64.ofInt?_some_toInt hᵢ
                 simp only [MILLISECONDS_PER_SECOND] at hn_du ⊢; omega
 
 -- parseUnit? value for "m"
@@ -1348,7 +1331,7 @@ private theorem parseUnit?_val_eq_min (isNeg : Bool) (s : String) (v : Int) (res
     cases hᵢ : Int64.ofInt? (signedQuantity isNeg n) with
     | none => rw [hᵢ] at hn_du; simp at hn_du
     | some i => rw [hᵢ] at hn_du; simp at hn_du
-                have hi := int64_ofInt?_toInt (signedQuantity isNeg n) i hᵢ
+                have hi := Int64.ofInt?_some_toInt hᵢ
                 simp only [MILLISECONDS_PER_MINUTE] at hn_du ⊢; omega
 
 -- parseUnit? value for "h"
@@ -1367,7 +1350,7 @@ private theorem parseUnit?_val_eq_hr (isNeg : Bool) (s : String) (v : Int) (rest
     cases hᵢ : Int64.ofInt? (signedQuantity isNeg n) with
     | none => rw [hᵢ] at hn_du; simp at hn_du
     | some i => rw [hᵢ] at hn_du; simp at hn_du
-                have hi := int64_ofInt?_toInt (signedQuantity isNeg n) i hᵢ
+                have hi := Int64.ofInt?_some_toInt hᵢ
                 simp only [MILLISECONDS_PER_HOUR] at hn_du ⊢; omega
 
 -- parseUnit? value for "d"
@@ -1386,7 +1369,7 @@ private theorem parseUnit?_val_eq_day (isNeg : Bool) (s : String) (v : Int) (res
     cases hᵢ : Int64.ofInt? (signedQuantity isNeg n) with
     | none => rw [hᵢ] at hn_du; simp at hn_du
     | some i => rw [hᵢ] at hn_du; simp at hn_du
-                have hi := int64_ofInt?_toInt (signedQuantity isNeg n) i hᵢ
+                have hi := Int64.ofInt?_some_toInt hᵢ
                 simp only [MILLISECONDS_PER_DAY] at hn_du ⊢; omega
 
 /-- On a well-formed duration body, `parseDuration?` agrees with `duration?` applied to the
@@ -2620,7 +2603,7 @@ theorem duration?_some_toInt (value : Int) (d : Duration)
   | some i =>
     simp [hv] at h
     subst h
-    exact int64_ofInt?_toInt value i hv
+    exact Int64.ofInt?_some_toInt hv
 
 theorem Int64.sub?_add?_inverse (a b c : Int64)
     (h : Int64.add? a b = some c) :
@@ -2633,7 +2616,7 @@ theorem Int64.sub?_add?_inverse (a b c : Int64)
   | some i =>
     simp [hs] at h
     subst h
-    have hi : i.toInt = a.toInt + b.toInt := int64_ofInt?_toInt (a.toInt + b.toInt) i hs
+    have hi : i.toInt = a.toInt + b.toInt := Int64.ofInt?_some_toInt hs
     rw [hi]
     have hsub : a.toInt + b.toInt - a.toInt = b.toInt := by omega
     rw [hsub]
