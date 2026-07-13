@@ -46,10 +46,10 @@ public theorem parse_complete_v4 {v : V4Components} {pre : Option String}
   sorry -- TODO: parseIPv4Net_eq_some makes the V4-first branch fire
 
 /-- Completeness for the V6 form: a well-formed V6 string parses to its `v6Value`. -/
-public theorem parse_complete_v6 {v : V6Components} {addr : String} {pre : Option String}
-    (hsyn : v.syntaxWf) (hren : V6Renders v addr)
+public theorem parse_complete_v6 {v : V6Components} {pre : Option String}
+    (hsyn : v.syntaxWf)
     (hpre : IsWfOptionalPrefix 3 (ADDR_SIZE V6_WIDTH) pre) :
-    IPAddr.ip (addr ++ (match pre with | none => "" | some p => "/" ++ p))
+    IPAddr.ip (v.asString ++ (match pre with | none => "" | some p => "/" ++ p))
       = some (v6Value v pre) := by
   sorry -- TODO: parseIPv4Net_none_of_isWfV6 forces fall-through, then parseIPv6Net_eq_some
 

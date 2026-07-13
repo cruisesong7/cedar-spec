@@ -114,31 +114,52 @@ public def hexValue (s : String) : Nat :=
   s.foldl (fun n c => n * 16 + toHexNat c) 0
 -- ANCHOR_END: hexValue
 
-/-- The eight expanded hextets of a V6 address. -/
+/-- A V6 address, as the spec parser accepts it: either a full list of hextets with no `::`
+    compression, or a `::`-compressed form with a left and right list of hextets and an implicit
+    run of zero hextets between them. This mirrors `parseSegsV6`'s `splitOn "::"`:
+    - `full gs`     ↔ the string has no `::`; `gs` is the `':'`-separated hextet list;
+    - `gap l r`     ↔ the string is `l₀:…:lₘ '::' r₀:…:rₙ`; the gap expands to `8 − (|l|+|r|)`
+      zero hextets. -/
 -- ANCHOR: V6Components
-public structure V6Components where
-  h₀ : String
-  h₁ : String
-  h₂ : String
-  h₃ : String
-  h₄ : String
-  h₅ : String
-  h₆ : String
-  h₇ : String
+public inductive V6Components where
+  | full (gs : List String)
+  | gap  (l r : List String)
 -- ANCHOR_END: V6Components
 
-/-- Every hextet is a well-formed 1–4 digit hex group. -/
+/-- The eight expanded hextet strings a `V6Components` denotes: the full list itself, or the two
+    sides padded with the appropriate number of `"0"` hextets between them. -/
+-- ANCHOR: V6Components.expand
+public def V6Components.expand : V6Components → List String
+  | .full gs  => gs
+  | .gap l r  => l ++ List.replicate (8 - (l.length + r.length)) "0" ++ r
+-- ANCHOR_END: V6Components.expand
+
+/-- Syntactic well-formedness of a V6 address:
+    - every present hextet is a valid 1–4 digit hex group;
+    - the `full` form has exactly 8 hextets (no `::` ⇒ `splitToList ':'` must give 8);
+    - the `gap` form's two sides total *strictly fewer* than 8 (so the `::` denotes ≥ 1 zero
+      hextet — `parseSegsV6` requires `len < 8`). -/
 -- ANCHOR: V6Components.syntaxWf
-public def V6Components.syntaxWf (v : V6Components) : Prop :=
-  IsHexGroup v.h₀ ∧ IsHexGroup v.h₁ ∧ IsHexGroup v.h₂ ∧ IsHexGroup v.h₃ ∧
-  IsHexGroup v.h₄ ∧ IsHexGroup v.h₅ ∧ IsHexGroup v.h₆ ∧ IsHexGroup v.h₇
+public def V6Components.syntaxWf : V6Components → Prop
+  | .full gs => gs.length = 8 ∧ ∀ s ∈ gs, IsHexGroup s
+  | .gap l r => l.length + r.length < 8 ∧ (∀ s ∈ l, IsHexGroup s) ∧ (∀ s ∈ r, IsHexGroup s)
 -- ANCHOR_END: V6Components.syntaxWf
 
-/-- The `IPv6Addr` value of well-formed V6 hextets. -/
+/-- Render a V6 address to its concrete string: hextets joined by `':'`, with `"::"` at the gap.
+    (`intercalate ":"` matches the parser's `splitToList (· = ':')` / `splitOn "::"` inverse.) -/
+-- ANCHOR: V6Components.asString
+public def V6Components.asString : V6Components → String
+  | .full gs => String.intercalate ":" gs
+  | .gap l r => String.intercalate ":" l ++ "::" ++ String.intercalate ":" r
+-- ANCHOR_END: V6Components.asString
+
+/-- The `IPv6Addr` value: the eight expanded hextets' hex values. Well-formedness guarantees
+    `expand` has length 8; on other lengths this defaults the missing groups to `0`. -/
 -- ANCHOR: V6Components.toAddr
 public def V6Components.toAddr (v : V6Components) : IPv6Addr :=
-  IPv6Addr.mk (hexValue v.h₀) (hexValue v.h₁) (hexValue v.h₂) (hexValue v.h₃)
-              (hexValue v.h₄) (hexValue v.h₅) (hexValue v.h₆) (hexValue v.h₇)
+  let g := v.expand
+  let hx (i : Nat) : Nat := hexValue (g.getD i "0")
+  IPv6Addr.mk (hx 0) (hx 1) (hx 2) (hx 3) (hx 4) (hx 5) (hx 6) (hx 7)
 -- ANCHOR_END: V6Components.toAddr
 
 /-! ## Prefix grammar
@@ -165,8 +186,9 @@ public def prefixValue (w : Nat) : Option String → IPNetPrefix w
 /-! ## Top-level well-formedness
 
 An IP-net string is well-formed when it is either a well-formed V4 rendering or a well-formed V6
-rendering (with V4 taking precedence, mirroring the parser's `if ipv4.isSome then … else …`). The V6
-rendering is quantified existentially over the concrete `::`-compressed string. -/
+rendering (with V4 taking precedence, mirroring the parser's `if ipv4.isSome then … else …`). Both
+are phrased existentially over the components' `asString` rendering (as in the duration/datetime
+grammars), baking the separators, group count, and `::`-compression rules into the witness. -/
 
 /-- Well-formed IPv4-net string: `addr ['/' pre]` where `addr` renders well-formed V4 groups whose
     values are in range, and the optional prefix is a canonical `≤ 32` number. -/
@@ -178,24 +200,15 @@ public def IsWfV4 (str : String) : Prop :=
     str = v.asString ++ (match pre with | none => "" | some p => "/" ++ p)
 -- ANCHOR_END: IsWfV4
 
-/-- Well-formed IPv6-net string: `addr ['/' pre]` where `addr` is a `::`-compressed rendering of
-    eight well-formed hextets, and the optional prefix is a canonical `≤ 128` number.
-
-    The `renders` predicate abstracts the `::`-compression: `str` is one of the concrete strings the
-    grammar accepts for `v`'s eight hextets. The exact set of valid renderings is characterized in
-    `Cedar.Thm.Ext.IPAddr.Lemmas` in terms of the spec parser's `splitOn "::"` / `splitToList ':'`
-    behavior; here it is left as an opaque predicate the lemmas discharge. -/
--- ANCHOR: V6Renders
-public opaque V6Renders (v : V6Components) (addr : String) : Prop
--- ANCHOR_END: V6Renders
-
-/-- Well-formed IPv6-net string. -/
+/-- Well-formed IPv6-net string: `addr ['/' pre]` where `addr` is the `asString` rendering of a
+    syntactically well-formed `V6Components` (either 8 `':'`-separated hextets, or a `::`-compressed
+    form whose two sides total `< 8`), and the optional prefix is a canonical `≤ 128` number. -/
 -- ANCHOR: IsWfV6
 public def IsWfV6 (str : String) : Prop :=
-  ∃ (v : V6Components) (addr : String) (pre : Option String),
-    v.syntaxWf ∧ V6Renders v addr ∧
+  ∃ (v : V6Components) (pre : Option String),
+    v.syntaxWf ∧
     IsWfOptionalPrefix 3 (ADDR_SIZE V6_WIDTH) pre ∧
-    str = addr ++ (match pre with | none => "" | some p => "/" ++ p)
+    str = v.asString ++ (match pre with | none => "" | some p => "/" ++ p)
 -- ANCHOR_END: IsWfV6
 
 /-- A string is a well-formed IP-net iff it is a well-formed V4 or V6 net. Because the parser tries

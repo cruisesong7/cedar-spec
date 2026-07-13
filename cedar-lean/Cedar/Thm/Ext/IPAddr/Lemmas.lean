@@ -80,19 +80,20 @@ theorem parseIPv4Net_isSome_wf {str : String} {net : IPNet} (h : parseIPv4Net st
 
 /-! ## IPv6 form -/
 
-/-- `parseSegsV6` inverts a `V6Renders` rendering on well-formed hextets. -/
-theorem parseSegsV6_renders {v : V6Components} {addr : String}
-    (hsyn : v.syntaxWf) (hren : V6Renders v addr) :
-    parseSegsV6 addr = some v.toAddr :=
-  sorry -- TODO: characterize splitOn "::" / splitToList ':' on a valid rendering; pad to 8
+/-- `parseSegsV6` inverts `V6Components.asString` on a syntactically well-formed V6 address:
+    `full gs` (no `::`) splits to exactly 8 hextets; `gap l r` splits on `::` into two sides that
+    `parseSegsV6` pads to 8. -/
+theorem parseSegsV6_asString {v : V6Components} (hsyn : v.syntaxWf) :
+    parseSegsV6 v.asString = some v.toAddr :=
+  sorry -- TODO: characterize splitOn "::" / splitToList ':' on asString; pad the gap to 8
 
 /-- `parseIPv6Net` succeeds on a well-formed V6 string, yielding `v6Value`. -/
-theorem parseIPv6Net_eq_some {v : V6Components} {addr : String} {pre : Option String}
-    (hsyn : v.syntaxWf) (hren : V6Renders v addr)
+theorem parseIPv6Net_eq_some {v : V6Components} {pre : Option String}
+    (hsyn : v.syntaxWf)
     (hpre : IsWfOptionalPrefix 3 (ADDR_SIZE V6_WIDTH) pre) :
-    parseIPv6Net (addr ++ (match pre with | none => "" | some p => "/" ++ p))
+    parseIPv6Net (v.asString ++ (match pre with | none => "" | some p => "/" ++ p))
       = some (v6Value v pre) :=
-  sorry -- TODO: split on '/'; parseSegsV6_renders + parsePrefixNat_eq_some
+  sorry -- TODO: split on '/'; parseSegsV6_asString + parsePrefixNat_eq_some
 
 /-- Soundness for V6: a successful `parseIPv6Net` means the string is a well-formed V6 rendering. -/
 theorem parseIPv6Net_isSome_wf {str : String} {net : IPNet} (h : parseIPv6Net str = some net) :
