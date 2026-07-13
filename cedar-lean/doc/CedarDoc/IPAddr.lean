@@ -1,5 +1,5 @@
 import VersoManual
-import Cedar.Thm.Ext.IPAddr
+import Cedar.Thm.Ext.IPAddr.Grammar
 
 open Verso.Genre Manual
 open Verso.Genre.Manual.InlineLean
@@ -203,26 +203,6 @@ public def IsWfIPNet (str : String) : Prop :=
   IsWfV4 str ∨ IsWfV6 str
 ```
 
-# Soundness and Completeness
-
-The parser is characterized by two complementary guarantees stated in terms of the formal definitions above.
-
-_Soundness_ says that whenever parsing succeeds, the input was genuinely valid — a well-formed IP-net string whose returned `IPNet` is the value of its witnessing components:
-
-{docstring parse_sound}
-
-_Completeness_ is the converse: every well-formed string is accepted, with the value of its components. It is proved per form:
-
-{docstring parse_complete_v4}
-
-{docstring parse_complete_v6}
-
-{docstring parse_complete}
-
-Together they give a complete characterization of parsing failure — the parser rejects exactly the strings that are not well-formed IP-nets. (There is no overflow condition, since the grammar's field bounds already exclude out-of-range values.)
-
-{docstring parse_eq_none_iff}
-
 # Canonical String Representation
 
 `toString` converts an `IPNet` back to a canonical string: an IPv4 net prints its four decimal octets and prefix; an IPv6 net prints all eight groups as four-digit lowercase hextets (no `::` elision) and prefix.
@@ -234,6 +214,4 @@ Together they give a complete characterization of parsing failure — the parser
 "0001:0002:0003:0004:000a:000b:000c:000d/128"
 ```
 
-# Roundtrip Theorem
-
-Parsing the canonical string representation of any parseable `IPNet` recovers it — `parse` and `toString` are mutually inverse on nets. This is the headline user-facing property, a corollary of completeness: canonical strings are a special case of well-formed inputs. The corresponding theorem `parse_toString_roundtrip` is stated in `Cedar.Thm.Ext.IPAddr` (kept internal, as the spec's `ToString IPNet` instance is not `public`).
+The parser's correctness properties — soundness (a successful parse yields a well-formed string whose value is the returned net), completeness (every well-formed string is accepted), the failure characterization, and the `parse`/`toString` roundtrip — are stated as theorems in `Cedar.Thm.Ext.IPAddr`. Their machine-checked proofs are in progress and are omitted here until complete.
