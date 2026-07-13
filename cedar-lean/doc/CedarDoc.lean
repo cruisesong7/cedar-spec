@@ -2,6 +2,7 @@ import VersoManual
 import CedarDoc.Decimal
 import CedarDoc.Datetime
 import CedarDoc.Duration
+import CedarDoc.IPAddr
 
 open Verso.Genre Manual
 open Verso.Genre.Manual.InlineLean
@@ -21,3 +22,5 @@ This document specifies Cedar's extension parsers and proves their correctness p
 {include 1 CedarDoc.Duration}
 
 {include 1 CedarDoc.Datetime}
+
+{include 1 CedarDoc.IPAddr}
