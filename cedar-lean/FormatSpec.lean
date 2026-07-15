@@ -19,12 +19,14 @@ import FormatSpec.Classify
 import FormatSpec.Denote
 import FormatSpec.Value
 import FormatSpec.Constraint
+import FormatSpec.Decode
 import FormatSpec.Syntax
 import FormatSpec.Examples
 import FormatSpec.SyntaxTest
 import FormatSpec.ValueTest
 import FormatSpec.DenoteTest
 import FormatSpec.ConstraintTest
+import FormatSpec.DecimalDemo
 
 /-!
 # FormatSpec
@@ -46,7 +48,9 @@ Module layout:
 * `FormatSpec.Value`      — the value-DSL: deep `ValExpr` AST + `eval` denotation
 * `FormatSpec.Constraint` — the constraint-DSL: deep `Constraint` AST, auto-classified
                             into `IsWf` (string) / `SatisfiesConstraints` (value) parts
+* `FormatSpec.Decode`     — executable capture extractor `decode` + `computeValue`
 * `FormatSpec.Syntax`     — the `format_spec` embedded DSL (surface → core `Grammar`)
 * `FormatSpec.Examples`   — hand-written `Grammar` values (Decimal, IPv4) for validation
+* `FormatSpec.DecimalDemo`— end-to-end demo: Decimal grammar → runnable spec
 * `FormatSpec.*Test`      — Syntax / Value / Denote / Constraint test fixtures
 -/

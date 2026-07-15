@@ -102,25 +102,45 @@ syntax:max "nat " ident    : valExpr
 syntax:max "int " ident    : valExpr
 syntax:max "len " ident    : valExpr
 syntax:max "sign " ident   : valExpr
+-- Named integer constants (desugar to `ValExpr.lit`, staying fully analyzable).
+syntax:max "Int64.MAX"     : valExpr
+syntax:max "Int64.MIN"     : valExpr
+-- `value` — inside a `constraints` entry, refers to the elaborated value expression
+-- (so constraints read like the doc's `value(X) ∈ [MIN, MAX]`). Only meaningful when a
+-- value substitution is supplied (see `elabValExprWith`); bare use elsewhere errors.
+syntax:max "value"         : valExpr
 syntax:max "(" valExpr ")" : valExpr
 syntax:65 valExpr:65 " + " valExpr:66 : valExpr
 syntax:65 valExpr:65 " - " valExpr:66 : valExpr
 syntax:70 valExpr:70 " * " valExpr:71 : valExpr
 syntax:75 valExpr:76 " ^ " valExpr:75 : valExpr
 
-/-- Translate a `valExpr` formula into a `ValExpr` term. -/
-partial def elabValExpr : TSyntax `valExpr → MacroM (TSyntax `term)
+/-- Translate a `valExpr` formula into a `ValExpr` term. `valueSub`, if provided, is the
+    term substituted for a `value` reference (the format's value expression); `none`
+    makes a `value` reference an error. -/
+partial def elabValExprWith (valueSub : Option (TSyntax `term)) :
+    TSyntax `valExpr → MacroM (TSyntax `term)
   | `(valExpr| $n:num)      => `(FormatSpec.ValExpr.lit $n)
+  | `(valExpr| Int64.MAX)   => `(FormatSpec.ValExpr.lit 9223372036854775807)
+  | `(valExpr| Int64.MIN)   => `(FormatSpec.ValExpr.lit (-9223372036854775808))
+  | `(valExpr| value)       =>
+      match valueSub with
+      | some t => pure t
+      | none   => Macro.throwUnsupported
   | `(valExpr| nat $i:ident)  => `(FormatSpec.ValExpr.nat $(quote i.getId.toString))
   | `(valExpr| int $i:ident)  => `(FormatSpec.ValExpr.int $(quote i.getId.toString))
   | `(valExpr| len $i:ident)  => `(FormatSpec.ValExpr.len $(quote i.getId.toString))
   | `(valExpr| sign $i:ident) => `(FormatSpec.ValExpr.signOf $(quote i.getId.toString))
-  | `(valExpr| ( $e:valExpr )) => elabValExpr e
-  | `(valExpr| $a:valExpr + $b:valExpr) => do `(FormatSpec.ValExpr.add $(← elabValExpr a) $(← elabValExpr b))
-  | `(valExpr| $a:valExpr - $b:valExpr) => do `(FormatSpec.ValExpr.sub $(← elabValExpr a) $(← elabValExpr b))
-  | `(valExpr| $a:valExpr * $b:valExpr) => do `(FormatSpec.ValExpr.mul $(← elabValExpr a) $(← elabValExpr b))
-  | `(valExpr| $a:valExpr ^ $b:valExpr) => do `(FormatSpec.ValExpr.pow $(← elabValExpr a) $(← elabValExpr b))
+  | `(valExpr| ( $e:valExpr )) => elabValExprWith valueSub e
+  | `(valExpr| $a:valExpr + $b:valExpr) => do `(FormatSpec.ValExpr.add $(← elabValExprWith valueSub a) $(← elabValExprWith valueSub b))
+  | `(valExpr| $a:valExpr - $b:valExpr) => do `(FormatSpec.ValExpr.sub $(← elabValExprWith valueSub a) $(← elabValExprWith valueSub b))
+  | `(valExpr| $a:valExpr * $b:valExpr) => do `(FormatSpec.ValExpr.mul $(← elabValExprWith valueSub a) $(← elabValExprWith valueSub b))
+  | `(valExpr| $a:valExpr ^ $b:valExpr) => do `(FormatSpec.ValExpr.pow $(← elabValExprWith valueSub a) $(← elabValExprWith valueSub b))
   | _ => Macro.throwUnsupported
+
+/-- Translate a `valExpr` with no `value` substitution (the common case). -/
+partial def elabValExpr (e : TSyntax `valExpr) : MacroM (TSyntax `term) :=
+  elabValExprWith none e
 
 /-- `val% <formula>` : a `ValExpr` value from math-style syntax. -/
 macro "val% " e:valExpr : term => elabValExpr e

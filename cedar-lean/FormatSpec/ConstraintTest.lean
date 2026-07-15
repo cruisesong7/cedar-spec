@@ -66,4 +66,22 @@ example : ¬ mixed.valPart (env [("X", "300")]) := by native_decide
 -- ...while wfPart passes on "300" (no leading zero).
 example : mixed.wfPart (env [("X", "300")]) := by native_decide
 
+/-! ## Escape hatch: `ConstraintEntry.opaque` for out-of-DSL constraints -/
+
+-- An arbitrary `Env → Bool` check (here: capture "Z" has even length) that the DSL
+-- cannot express, declared value-dependent.
+def evenLen : ConstraintEntry :=
+  .opaque true (fun e => match e "Z" with | some s => s.length % 2 == 0 | none => true)
+
+-- Classifies per its declared flag (value → SatisfiesConstraints)...
+example : evenLen.isValueDependent = true := by native_decide
+-- ...folds into valPart, not wfPart...
+example : evenLen.valPart (env [("Z", "abcd")]) := by native_decide
+example : ¬ evenLen.valPart (env [("Z", "abc")]) := by native_decide
+example : evenLen.wfPart (env [("Z", "abc")]) := by native_decide  -- vacuous on the wf side
+
+-- A string-classified escape (`opaqueWf`) folds into wfPart instead.
+def opaqueString : ConstraintEntry := .opaque false (fun _ => true)
+example : opaqueString.isValueDependent = false := by native_decide
+
 end FormatSpec.ConstraintTest

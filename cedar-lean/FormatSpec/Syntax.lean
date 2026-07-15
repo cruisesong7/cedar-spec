@@ -18,6 +18,7 @@ import Lean
 import FormatSpec.Grammar
 import FormatSpec.Classify
 import FormatSpec.Value
+import FormatSpec.Constraint
 
 /-!
 # `format_spec` embedded DSL
@@ -89,22 +90,28 @@ syntax "[" fmtItem "]"    : fmtItem  -- optional
 declare_syntax_cat fmtProd
 syntax withPosition(ident " ::= " (colGt fmtItem)+) : fmtProd
 
-/-- The optional `constraints` section: raw Lean predicate terms, comma-separated,
-    each of type `String → Prop`. A DSL + auto-classification replaces this later. -/
-syntax fmtConstraints := "constraints" term,*
+/-- The optional `constraints` section: predicates written in the constraint-DSL
+    (`constraintExpr` category from `FormatSpec.Constraint`), one per line (`colGt`, like
+    the `grammar` productions — no commas). Each is auto-classified (string → `IsWf`,
+    value → `SatisfiesConstraints`) downstream. -/
+syntax fmtConstraints := "constraints" (colGt constraintExpr)+
 
-/-- The optional `value` section: a value formula written directly in the value-DSL
-    (`valExpr` category from `FormatSpec.Value`) — no `val%` wrapper needed, the section
-    parses the math formula in place, matching the doc's `value(X) = …`. -/
-syntax fmtValue := "value" valExpr
+/-- The optional `value` section. Two tiers (design note §16.4/§16.7):
+    * `value <formula>` — the value-DSL (`valExpr`); analyzable, matches `value(X)=…`.
+    * `value opaque := <term>` — the ESCAPE HATCH: an arbitrary Lean term of type
+      `Env → Int`, for values outside the DSL vocabulary (CoStar++-level expressiveness,
+      definitional — no auto-analysis). Ensures no grammar is ever blocked. -/
+syntax fmtValue := "value" (("opaque" " := " term) <|> valExpr)
 
-/-- The `format_spec` command with three sections: `grammar` (required),
-    `constraints` (optional), `value` (optional). -/
+/-- The `format_spec` command, sections in order: `grammar` (required), `value`
+    (optional), `constraints` (optional). `value` precedes `constraints` so a constraint
+    can refer to `value` (the elaborated value expression), matching the doc's
+    `Constraint: value(X) ∈ [Int64.MIN, Int64.MAX]`. -/
 syntax (name := formatSpecCmd)
   "format_spec " ident " where "
     "grammar" (colGt fmtProd)+
-    (fmtConstraints)?
-    (fmtValue)? : command
+    (fmtValue)?
+    (fmtConstraints)? : command
 
 /-- Elaborate a `fmtLen` into a `LenSpec` term. -/
 def elabLen : TSyntax `fmtLen → CommandElabM (TSyntax `term)
@@ -150,30 +157,42 @@ def elabProd : TSyntax `fmtProd → CommandElabM (TSyntax `term)
 @[command_elab formatSpecCmd]
 def elabFormatSpec : CommandElab := fun stx => do
   match stx with
-  | `(format_spec $name:ident where grammar $prods:fmtProd* $[$cs:fmtConstraints]? $[$v:fmtValue]?) => do
+  | `(format_spec $name:ident where grammar $prods:fmtProd* $[$v:fmtValue]? $[$cs:fmtConstraints]?) => do
       -- Grammar (always).
       let prodTerms ← prods.mapM elabProd
       let sep : Syntax.TSepArray `term "," := .ofElems prodTerms
       let grammarIdent := mkIdentFrom name (name.getId ++ `grammar)
       elabCommand (← `(def $grammarIdent : FormatSpec.Grammar :=
                     FormatSpec.Grammar.mk $(Syntax.mkStrLit name.getId.toString) [$sep,*]))
-      -- Constraints (optional): raw predicate terms, bound as a list. The
-      -- `fmtConstraints` node is `"constraints" term,*`; its arg 1 is the sepBy of
-      -- terms (terms at even positions, commas at odd).
-      if let some csStx := cs then
-        let args := csStx.raw[1].getArgs
-        let terms : Array (TSyntax `term) := (args.zipIdx).filterMap (fun (s, i) =>
-          if i % 2 == 0 then some ⟨s⟩ else none)
-        let psep : Syntax.TSepArray `term "," := .ofElems terms
-        let cIdent := mkIdentFrom name (name.getId ++ `constraints)
-        elabCommand (← `(def $cIdent : List (String → Prop) := [$psep,*]))
-      -- Value (optional): a value-DSL formula (arg 1 of `fmtValue` is the `valExpr`).
-      -- Translate it to a `ValExpr` term via the value-DSL elaborator and bind it.
+      -- Value (optional), processed BEFORE constraints so a constraint may refer to
+      -- `value`. Two tiers: `value opaque := <term>` binds the raw `Env → Int`;
+      -- `value <formula>` elaborates the value-DSL to a `ValExpr` (bound as `valueExpr`)
+      -- whose `eval` is the value fn. `valueSub` is the `ValExpr` term substituted for a
+      -- `value` reference in constraints (only in the DSL tier).
+      let mut valueSub : Option (TSyntax `term) := none
       if let some vStx := v then
-        let ve : TSyntax `valExpr := ⟨vStx.raw[1]⟩
-        let valTerm ← liftMacroM (elabValExpr ve)
-        let vIdent := mkIdentFrom name (name.getId ++ `valueExpr)
-        elabCommand (← `(def $vIdent : FormatSpec.ValExpr := $valTerm))
+        let inner := vStx.raw[1]
+        let vfnIdent := mkIdentFrom name (name.getId ++ `valueFn)
+        if inner[0].isToken "opaque" then
+          let t : TSyntax `term := ⟨inner[2]⟩
+          elabCommand (← `(def $vfnIdent : FormatSpec.Env → Int := $t))
+        else
+          let ve : TSyntax `valExpr := ⟨inner⟩
+          let valTerm ← liftMacroM (elabValExpr ve)
+          let veIdent := mkIdentFrom name (name.getId ++ `valueExpr)
+          elabCommand (← `(def $veIdent : FormatSpec.ValExpr := $valTerm))
+          elabCommand (← `(def $vfnIdent : FormatSpec.Env → Int := ($veIdent).eval))
+          -- Refer to the value expression by its generated name in constraints.
+          valueSub := some (← `($veIdent))
+      -- Constraints (optional): constraint-DSL predicates, one per line, with `value`
+      -- substituted by the value expression. The `fmtConstraints` node is
+      -- `"constraints" (colGt constraintExpr)+`; arg 1 is the plain array of exprs.
+      if let some csStx := cs then
+        let exprs : Array (TSyntax `constraintExpr) := csStx.raw[1].getArgs.map (⟨·⟩)
+        let cTerms ← exprs.mapM (fun e => liftMacroM (elabEntryWith valueSub e))
+        let csep : Syntax.TSepArray `term "," := .ofElems cTerms
+        let cIdent := mkIdentFrom name (name.getId ++ `constraints)
+        elabCommand (← `(def $cIdent : List FormatSpec.ConstraintEntry := [$csep,*]))
   | _ => throwUnsupportedSyntax
 
 end FormatSpec

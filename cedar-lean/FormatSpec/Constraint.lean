@@ -129,6 +129,43 @@ instance instDecidableValPart (env : Env) : (c : Constraint) → Decidable (c.va
   | .lt a b          => by unfold Constraint.valPart; split <;> infer_instance
   | .eq a b          => by unfold Constraint.valPart; split <;> infer_instance
 
+/-- A constraint *entry* in the `constraints` section: either a structured, analyzable
+    `Constraint` (the DSL), or the ESCAPE HATCH — an arbitrary decidable predicate on the
+    environment with a declared classification (design note §16.7). The escape keeps the
+    analyzable `Constraint` AST pure (deriving `Repr`/`DecidableEq`) while never blocking
+    a constraint outside the DSL vocabulary. -/
+inductive ConstraintEntry where
+  /-- A DSL constraint (analyzable). -/
+  | dsl (c : Constraint)
+  /-- Opaque escape: an arbitrary boolean check on the environment (carrying its own
+      decision procedure, so no `DecidablePred` plumbing). `isVal` declares whether it
+      folds into `SatisfiesConstraints` (true) or `IsWf` (false), since it cannot be
+      inferred from an opaque term. -/
+  | opaque (isVal : Bool) (check : Env → Bool)
+
+/-- Value-dependence of an entry (opaque uses its declared `isVal`). -/
+def ConstraintEntry.isValueDependent : ConstraintEntry → Bool
+  | .dsl c        => c.isValueDependent
+  | .opaque b _   => b
+
+/-- `IsWf`-side contribution of an entry. -/
+def ConstraintEntry.wfPart (env : Env) : ConstraintEntry → Prop
+  | .dsl c              => c.wfPart env
+  | .opaque isVal check => if isVal then True else check env = true
+
+/-- `SatisfiesConstraints`-side contribution of an entry. -/
+def ConstraintEntry.valPart (env : Env) : ConstraintEntry → Prop
+  | .dsl c              => c.valPart env
+  | .opaque isVal check => if isVal then check env = true else True
+
+instance (env : Env) : (e : ConstraintEntry) → Decidable (e.wfPart env)
+  | .dsl c        => by unfold ConstraintEntry.wfPart; infer_instance
+  | .opaque _ _   => by unfold ConstraintEntry.wfPart; split <;> infer_instance
+
+instance (env : Env) : (e : ConstraintEntry) → Decidable (e.valPart env)
+  | .dsl c        => by unfold ConstraintEntry.valPart; infer_instance
+  | .opaque _ _   => by unfold ConstraintEntry.valPart; split <;> infer_instance
+
 /-! ## Surface syntax → `Constraint`
 
 A `constraintExpr` category reusing the `valExpr` category (from `FormatSpec.Value`) for
@@ -142,20 +179,55 @@ syntax ident " = " str                   : constraintExpr   -- string equality
 syntax valExpr " ≤ " valExpr             : constraintExpr
 syntax valExpr " < " valExpr             : constraintExpr
 syntax valExpr " == " valExpr            : constraintExpr   -- value equality (`==` to avoid clash)
+-- Closed-interval sugar: `e ∈ [lo, hi]` desugars to `lo ≤ e ∧ e ≤ hi` (no new AST node).
+-- Matches the doc's `value ∈ [Int64.MIN, Int64.MAX]`. (Sets/half-open intervals are out
+-- of scope — use the `opaque` escape for those.)
+syntax valExpr " ∈ " "[" valExpr ", " valExpr "]" : constraintExpr
+-- ESCAPE HATCH (design note §16.7): an arbitrary `Env → Bool` check outside the DSL
+-- vocabulary. `opaqueWf`   → folds into `IsWf` (string-only classification);
+--                `opaqueVal` → folds into `SatisfiesConstraints` (value classification).
+syntax "opaqueWf "  term:max : constraintExpr
+syntax "opaqueVal " term:max : constraintExpr
 
-/-- Translate a `constraintExpr` into a `Constraint` term. -/
-def elabConstraint : TSyntax `constraintExpr → MacroM (TSyntax `term)
+/-- Translate a `constraintExpr` into a `Constraint` term (DSL forms only). `valueSub`,
+    if provided, is substituted for a `value` reference in the arithmetic sides. -/
+def elabConstraintWith (valueSub : Option (TSyntax `term)) :
+    TSyntax `constraintExpr → MacroM (TSyntax `term)
   | `(constraintExpr| noLeadingZero $i:ident) =>
       `(FormatSpec.Constraint.noLeadingZero $(quote i.getId.toString))
   | `(constraintExpr| $i:ident = $l:str) =>
       `(FormatSpec.Constraint.strEq $(quote i.getId.toString) $l)
   | `(constraintExpr| $a:valExpr ≤ $b:valExpr) => do
-      `(FormatSpec.Constraint.le $(← elabValExpr a) $(← elabValExpr b))
+      `(FormatSpec.Constraint.le $(← elabValExprWith valueSub a) $(← elabValExprWith valueSub b))
   | `(constraintExpr| $a:valExpr < $b:valExpr) => do
-      `(FormatSpec.Constraint.lt $(← elabValExpr a) $(← elabValExpr b))
+      `(FormatSpec.Constraint.lt $(← elabValExprWith valueSub a) $(← elabValExprWith valueSub b))
   | `(constraintExpr| $a:valExpr == $b:valExpr) => do
-      `(FormatSpec.Constraint.eq $(← elabValExpr a) $(← elabValExpr b))
+      `(FormatSpec.Constraint.eq $(← elabValExprWith valueSub a) $(← elabValExprWith valueSub b))
+  | `(constraintExpr| $e:valExpr ∈ [ $lo:valExpr , $hi:valExpr ]) => do
+      -- desugar to `lo ≤ e ∧ e ≤ hi`
+      let et ← elabValExprWith valueSub e
+      let lot ← elabValExprWith valueSub lo
+      let hit ← elabValExprWith valueSub hi
+      `(FormatSpec.Constraint.and (FormatSpec.Constraint.le $lot $et)
+                                  (FormatSpec.Constraint.le $et $hit))
   | _ => Macro.throwUnsupported
+
+/-- Translate a `constraintExpr` into a `Constraint` term with no `value` substitution. -/
+def elabConstraint (c : TSyntax `constraintExpr) : MacroM (TSyntax `term) :=
+  elabConstraintWith none c
+
+/-- Translate a `constraintExpr` into a `ConstraintEntry` term: DSL forms wrap in
+    `.dsl`, `opaqueWf`/`opaqueVal` produce the escape-hatch `.opaque` entry. `valueSub`
+    threads the value expression for `value` references. -/
+def elabEntryWith (valueSub : Option (TSyntax `term)) :
+    TSyntax `constraintExpr → MacroM (TSyntax `term)
+  | `(constraintExpr| opaqueWf $t:term)  => `(FormatSpec.ConstraintEntry.opaque false $t)
+  | `(constraintExpr| opaqueVal $t:term) => `(FormatSpec.ConstraintEntry.opaque true $t)
+  | c => do `(FormatSpec.ConstraintEntry.dsl $(← elabConstraintWith valueSub c))
+
+/-- `elabEntry` with no `value` substitution. -/
+def elabEntry (c : TSyntax `constraintExpr) : MacroM (TSyntax `term) :=
+  elabEntryWith none c
 
 /-- `cstr% <predicate>` : a `Constraint` value from the constraint-DSL. -/
 macro "cstr% " c:constraintExpr : term => elabConstraint c

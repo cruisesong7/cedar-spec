@@ -44,11 +44,11 @@ format_spec IPv4 where
   grammar
     IPv4  ::= Group "." Group "." Group "." Group
     Group ::= digit{1,3}
-  constraints
-    fun s => s.length ≤ 15,
-    fun s => ¬ s.startsWith "."
   value
     nat Group * 256 ^ 3 + nat Group * 256 ^ 2 + nat Group * 256 + nat Group
+  constraints
+    noLeadingZero Group
+    nat Group ≤ 255
 
 -- The DSL output matches the hand-written grammar values.
 example : Decimal.grammar = Examples.decimal := by decide
@@ -60,7 +60,10 @@ example : IPv4.grammar.ok = true := by native_decide
 
 -- The optional sections generate their auxiliary defs.
 example : IPv4.constraints.length = 2 := by native_decide
--- `value` generates the deep `ValExpr` AST (not a raw function).
-example : IPv4.valueExpr.eval (fun _ => some "0") = 0 := by native_decide
+-- `constraints` are `ConstraintEntry` values, auto-classifiable:
+--   `noLeadingZero Group` is string-only (→ IsWf), `nat Group ≤ 255` is value (→ SatisfiesConstraints).
+example : (IPv4.constraints.map ConstraintEntry.isValueDependent) = [false, true] := by native_decide
+-- `value` generates the deep `ValExpr` AST + a uniform value fn.
+example : IPv4.valueFn (fun _ => some "0") = 0 := by native_decide
 
 end FormatSpec.SyntaxTest
