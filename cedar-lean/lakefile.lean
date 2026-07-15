@@ -49,6 +49,9 @@ lean_lib SymTest where
 lean_lib Protobuf where
   defaultFacets := #[LeanLib.staticFacet]
 
+lean_lib FormatSpec where
+  defaultFacets := #[LeanLib.staticFacet]
+
 lean_lib CedarProto where
   defaultFacets := #[LeanLib.staticFacet]
 
