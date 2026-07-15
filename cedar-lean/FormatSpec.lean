@@ -16,9 +16,15 @@
 
 import FormatSpec.Grammar
 import FormatSpec.Classify
+import FormatSpec.Denote
+import FormatSpec.Value
+import FormatSpec.Constraint
 import FormatSpec.Syntax
 import FormatSpec.Examples
 import FormatSpec.SyntaxTest
+import FormatSpec.ValueTest
+import FormatSpec.DenoteTest
+import FormatSpec.ConstraintTest
 
 /-!
 # FormatSpec
@@ -35,7 +41,12 @@ See `Cedar/Thm/Ext/GRAMMAR_TO_SPEC_DESIGN.md` for the full design.
 
 Module layout:
 * `FormatSpec.Grammar`  — core grammar data type (what the DSL elaborates into)
-* `FormatSpec.Classify` — decidable synthesizability classifier
-* `FormatSpec.Syntax`   — the `format_spec` embedded DSL (surface → core `Grammar`)
-* `FormatSpec.Examples` — hand-written `Grammar` values (Decimal, IPv4) for validation
+* `FormatSpec.Classify` — decidable syntactic classifier (acyclicity, ref resolution)
+* `FormatSpec.Denote`     — grammar denotation → `IsWf` (well-formedness predicate)
+* `FormatSpec.Value`      — the value-DSL: deep `ValExpr` AST + `eval` denotation
+* `FormatSpec.Constraint` — the constraint-DSL: deep `Constraint` AST, auto-classified
+                            into `IsWf` (string) / `SatisfiesConstraints` (value) parts
+* `FormatSpec.Syntax`     — the `format_spec` embedded DSL (surface → core `Grammar`)
+* `FormatSpec.Examples`   — hand-written `Grammar` values (Decimal, IPv4) for validation
+* `FormatSpec.*Test`      — Syntax / Value / Denote / Constraint test fixtures
 -/

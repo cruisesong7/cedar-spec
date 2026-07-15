@@ -38,6 +38,8 @@ format_spec Decimal where
     Fraction ::= digit{1,4}
 
 -- IPv4 via the DSL, exercising all three sections (grammar/constraints/value).
+-- `value` uses the value-DSL formula directly (no `val%`); a base-256 assembly of the
+-- four groups (affine).
 format_spec IPv4 where
   grammar
     IPv4  ::= Group "." Group "." Group "." Group
@@ -46,7 +48,7 @@ format_spec IPv4 where
     fun s => s.length ≤ 15,
     fun s => ¬ s.startsWith "."
   value
-    fun (s : String) => s.length
+    nat Group * 256 ^ 3 + nat Group * 256 ^ 2 + nat Group * 256 + nat Group
 
 -- The DSL output matches the hand-written grammar values.
 example : Decimal.grammar = Examples.decimal := by decide
@@ -58,6 +60,7 @@ example : IPv4.grammar.ok = true := by native_decide
 
 -- The optional sections generate their auxiliary defs.
 example : IPv4.constraints.length = 2 := by native_decide
-example : IPv4.valueFn "abc" = 3 := by native_decide
+-- `value` generates the deep `ValExpr` AST (not a raw function).
+example : IPv4.valueExpr.eval (fun _ => some "0") = 0 := by native_decide
 
 end FormatSpec.SyntaxTest

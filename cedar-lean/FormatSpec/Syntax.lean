@@ -17,6 +17,7 @@
 import Lean
 import FormatSpec.Grammar
 import FormatSpec.Classify
+import FormatSpec.Value
 
 /-!
 # `format_spec` embedded DSL
@@ -92,9 +93,10 @@ syntax withPosition(ident " ::= " (colGt fmtItem)+) : fmtProd
     each of type `String → Prop`. A DSL + auto-classification replaces this later. -/
 syntax fmtConstraints := "constraints" term,*
 
-/-- The optional `value` section: a single raw Lean term (the value function). A flat
-    first-order value-DSL replaces this later. -/
-syntax fmtValue := "value" term
+/-- The optional `value` section: a value formula written directly in the value-DSL
+    (`valExpr` category from `FormatSpec.Value`) — no `val%` wrapper needed, the section
+    parses the math formula in place, matching the doc's `value(X) = …`. -/
+syntax fmtValue := "value" valExpr
 
 /-- The `format_spec` command with three sections: `grammar` (required),
     `constraints` (optional), `value` (optional). -/
@@ -140,7 +142,8 @@ def elabProd : TSyntax `fmtProd → CommandElabM (TSyntax `term)
 /-- Elaborate the `format_spec` command. Currently emits:
     * `<Name>.grammar : Grammar`            — from the `grammar` section (always)
     * `<Name>.constraints : List (String → Prop)` — from `constraints` (if present)
-    * `<Name>.valueFn : ...`                — from `value` (if present)
+    * `<Name>.valueExpr : ValExpr`          — from `value` (if present), the deep AST
+      built from the in-place value-DSL formula (no `val%` wrapper)
 
     Generation of `IsWf` / `SatisfiesConstraints` / `IsAccepted` / `computeValue` from
     these is the next increment. -/
@@ -164,11 +167,13 @@ def elabFormatSpec : CommandElab := fun stx => do
         let psep : Syntax.TSepArray `term "," := .ofElems terms
         let cIdent := mkIdentFrom name (name.getId ++ `constraints)
         elabCommand (← `(def $cIdent : List (String → Prop) := [$psep,*]))
-      -- Value (optional): raw value function term (arg 1 of the `fmtValue` node).
+      -- Value (optional): a value-DSL formula (arg 1 of `fmtValue` is the `valExpr`).
+      -- Translate it to a `ValExpr` term via the value-DSL elaborator and bind it.
       if let some vStx := v then
-        let t : TSyntax `term := ⟨vStx.raw[1]⟩
-        let vIdent := mkIdentFrom name (name.getId ++ `valueFn)
-        elabCommand (← `(def $vIdent := $t))
+        let ve : TSyntax `valExpr := ⟨vStx.raw[1]⟩
+        let valTerm ← liftMacroM (elabValExpr ve)
+        let vIdent := mkIdentFrom name (name.getId ++ `valueExpr)
+        elabCommand (← `(def $vIdent : FormatSpec.ValExpr := $valTerm))
   | _ => throwUnsupportedSyntax
 
 end FormatSpec

@@ -558,3 +558,48 @@ that proves the fixed-arity boundary is real. Consequence: the value-DSL MUST su
 structured (non-`Int`) output with constructor application; the contract-theorem
 generator must handle structured value types, not assume a scalar `computeValue`
 (the doc already notes IPAddr soundness is "phrased per witnessing components").
+
+### 16.6 The value type: `computeValue : Int`, NO `package` layer (corrected)
+
+A false start (now corrected): I proposed a `package : Int → Option D` layer to
+"cast" the value into the format's real type (`Int64`, `IPNet`). **That layer is
+unnecessary and is dropped.** The reasoning:
+
+- **`computeValue` is `Int` (arbitrary precision), deliberately.** Computing in `Int`
+  (not `Int64`) is REQUIRED: it yields the *true* mathematical value so overflow is
+  *detectable*. If it computed in `Int64`, overflow would wrap silently and the value
+  would already be garbage — you couldn't even state the overflow condition. (My
+  `ValExpr.eval : Env → Int` is correct as-is for this reason.)
+- **The `Int64` bound is a CONSTRAINT, not a cast.** "fits in `Int64`" ⟺ `Int64.ofInt?`
+  succeeds ⟺ `Int64.MIN ≤ computeValue s ≤ Int64.MAX`. That is exactly a
+  `SatisfiesConstraints` entry — and exactly the existing Decimal `parse_eq_none_iff`
+  disjunct. So `Int64`-enforcement lives in `constraints`, as the user intuited.
+- **The spec NEVER constructs `D`; it projects the parser's output DOWN.** The proposed
+  `package` also did *construction* (build `Decimal`/`IPNet` from `Int`s) — but the
+  spec never needs to. `parse_sound` compares `computeValue s : Int` against
+  `d.val.toInt` — it takes the parser's *already-built* `d : D` and projects it *down*
+  to `Int` via a projection `π : D → Int`. Construction is the *parser's* job;
+  verification only reads the `Int` back out. So construction (the other half of
+  `package`) evaporates too.
+
+**Corrected value model — three pieces, no package:**
+```
+computeValue         : String → Int      -- ValExpr.eval ∘ decode; arbitrary precision
+SatisfiesConstraints : String → Prop     -- includes Int64.MIN ≤ · ≤ Int64.MAX (the "cast" check)
+IsAccepted           := IsWf ∧ SatisfiesConstraints
+-- contract theorem: parse s = some d → IsAccepted s ∧ computeValue s = π d
+--   where π : D → Int is a small PROJECTION (Int64 wrapper ↦ .toInt), used only in the
+--   theorem STATEMENT, not a computational stage; derivable from D's structure.
+```
+
+- **Non-number / structured `D` (IPAddr → `IPNet`):** same principle. No construction on
+  the spec side; instead **per-component** `computeValue`s + **per-component projections**
+  (compare `nat g₀ = <octet 0 of d>`, …). Confirmed by the doc: IPAddr soundness is
+  "phrased per witnessing components rather than through a single computeValue." So
+  structured output needs multiple `Int`-valued `computeValue`s + a tuple projection,
+  NOT a `package`/constructor layer in the spec.
+
+Net: `ValExpr` stays scalar-`Int` (correct); `Int64` = a `constraints` bound; typed/
+structured output handled by projecting the PARSER's result down to `Int`(s) in the
+contract statement. The earlier `package` layer was construction the projection-based
+contract makes unnecessary.
