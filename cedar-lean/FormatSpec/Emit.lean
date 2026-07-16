@@ -67,9 +67,9 @@ def symPred (specName : Name) : Sym → (v : TSyntax `term) → CommandElabM (TS
 
 /-- Lowercase the first character (nonterminal `Integer` → binder `integer`). -/
 private def deCap (s : String) : String :=
-  match s.data with
+  match s.toList with
   | []      => s
-  | c :: cs => String.mk (c.toLower :: cs)
+  | c :: cs => String.ofList (c.toLower :: cs)
 
 /-- Base binder name for a capturing symbol; `none` for a literal (no binder). -/
 private def binderBase : Sym → Option String

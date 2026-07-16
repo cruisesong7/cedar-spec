@@ -13,31 +13,46 @@ def Duration.grammar : Grammar :=
       Production.mk "Components"
         [[SymItem.mk (Sym.ref "Days") true, SymItem.mk (Sym.ref "Hours") true, SymItem.mk (Sym.ref "Minutes") true,
             SymItem.mk (Sym.ref "Seconds") true, SymItem.mk (Sym.ref "Millis") true]],
-      Production.mk "Days"
-        [[SymItem.mk (Sym.term TokClass.digit LenSpec.atLeastOne) false, SymItem.mk (Sym.lit "d") false]],
-      Production.mk "Hours"
-        [[SymItem.mk (Sym.term TokClass.digit LenSpec.atLeastOne) false, SymItem.mk (Sym.lit "h") false]],
-      Production.mk "Minutes"
-        [[SymItem.mk (Sym.term TokClass.digit LenSpec.atLeastOne) false, SymItem.mk (Sym.lit "m") false]],
-      Production.mk "Seconds"
-        [[SymItem.mk (Sym.term TokClass.digit LenSpec.atLeastOne) false, SymItem.mk (Sym.lit "s") false]],
-      Production.mk "Millis"
-        [[SymItem.mk (Sym.term TokClass.digit LenSpec.atLeastOne) false, SymItem.mk (Sym.lit "ms") false]]]
+      Production.mk "Days" [[SymItem.mk (Sym.ref "DDays") false, SymItem.mk (Sym.lit "d") false]],
+      Production.mk "Hours" [[SymItem.mk (Sym.ref "DHours") false, SymItem.mk (Sym.lit "h") false]],
+      Production.mk "Minutes" [[SymItem.mk (Sym.ref "DMinutes") false, SymItem.mk (Sym.lit "m") false]],
+      Production.mk "Seconds" [[SymItem.mk (Sym.ref "DSeconds") false, SymItem.mk (Sym.lit "s") false]],
+      Production.mk "Millis" [[SymItem.mk (Sym.ref "DMillis") false, SymItem.mk (Sym.lit "ms") false]],
+      Production.mk "DDays" [[SymItem.mk (Sym.term TokClass.digit LenSpec.atLeastOne) false]],
+      Production.mk "DHours" [[SymItem.mk (Sym.term TokClass.digit LenSpec.atLeastOne) false]],
+      Production.mk "DMinutes" [[SymItem.mk (Sym.term TokClass.digit LenSpec.atLeastOne) false]],
+      Production.mk "DSeconds" [[SymItem.mk (Sym.term TokClass.digit LenSpec.atLeastOne) false]],
+      Production.mk "DMillis" [[SymItem.mk (Sym.term TokClass.digit LenSpec.atLeastOne) false]]]
+
+def Duration.IsWf.DDays (s : String) : Prop :=
+  IsDigits s
 
 def Duration.IsWf.Days (s : String) : Prop :=
-  ∃ digits, s = digits ++ "d" ∧ IsDigits digits
+  ∃ dDays, s = dDays ++ "d" ∧ Duration.IsWf.DDays dDays
+
+def Duration.IsWf.DHours (s : String) : Prop :=
+  IsDigits s
 
 def Duration.IsWf.Hours (s : String) : Prop :=
-  ∃ digits, s = digits ++ "h" ∧ IsDigits digits
+  ∃ dHours, s = dHours ++ "h" ∧ Duration.IsWf.DHours dHours
+
+def Duration.IsWf.DMinutes (s : String) : Prop :=
+  IsDigits s
 
 def Duration.IsWf.Minutes (s : String) : Prop :=
-  ∃ digits, s = digits ++ "m" ∧ IsDigits digits
+  ∃ dMinutes, s = dMinutes ++ "m" ∧ Duration.IsWf.DMinutes dMinutes
+
+def Duration.IsWf.DSeconds (s : String) : Prop :=
+  IsDigits s
 
 def Duration.IsWf.Seconds (s : String) : Prop :=
-  ∃ digits, s = digits ++ "s" ∧ IsDigits digits
+  ∃ dSeconds, s = dSeconds ++ "s" ∧ Duration.IsWf.DSeconds dSeconds
+
+def Duration.IsWf.DMillis (s : String) : Prop :=
+  IsDigits s
 
 def Duration.IsWf.Millis (s : String) : Prop :=
-  ∃ digits, s = digits ++ "ms" ∧ IsDigits digits
+  ∃ dMillis, s = dMillis ++ "ms" ∧ Duration.IsWf.DMillis dMillis
 
 def Duration.IsWf.Components (s : String) : Prop :=
   ∃ days,
@@ -54,8 +69,23 @@ def Duration.IsWf.Components (s : String) : Prop :=
 def Duration.IsWf.Duration (s : String) : Prop :=
   (∃ rest, s = "-" ++ rest ∧ Duration.IsWf.Components rest) ∨ Duration.IsWf.Components s
 
+def Duration.valueExpr : ValExpr :=
+  ValExpr.add
+    (ValExpr.add
+      (ValExpr.add
+        (ValExpr.add (ValExpr.mul (ValExpr.nat "DDays") (ValExpr.lit 86400000))
+          (ValExpr.mul (ValExpr.nat "DHours") (ValExpr.lit 3600000)))
+        (ValExpr.mul (ValExpr.nat "DMinutes") (ValExpr.lit 60000)))
+      (ValExpr.mul (ValExpr.nat "DSeconds") (ValExpr.lit 1000)))
+    (ValExpr.nat "DMillis")
+
+def Duration.valueFn : Env → Int :=
+  (Duration.valueExpr).eval
+
 def Duration.constraints : List ConstraintEntry :=
-  []
+  [ConstraintEntry.dsl
+      (Constraint.and (Constraint.le (ValExpr.lit (-9223372036854775808)) Duration.valueExpr)
+        (Constraint.le Duration.valueExpr (ValExpr.lit 9223372036854775807)))]
 
 abbrev Duration.isWf (s : String) : Prop :=
   FormatSpec.isWf Duration.grammar Duration.constraints s
@@ -65,3 +95,6 @@ abbrev Duration.satisfiesConstraints (s : String) : Prop :=
 
 abbrev Duration.isAccepted (s : String) : Prop :=
   Duration.isWf s ∧ Duration.satisfiesConstraints s
+
+def Duration.computeValue (s : String) : Option Int :=
+  FormatSpec.computeValue Duration.grammar Duration.valueExpr s

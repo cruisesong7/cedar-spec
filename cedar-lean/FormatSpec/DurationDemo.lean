@@ -34,16 +34,30 @@ than Decimal did. Grammar + IsWf only for now; see the note on `value` at the en
 namespace FormatSpec.DurationDemo
 open FormatSpec
 
--- Grammar only (no `value`/`constraints` yet — see the note below on the `nat` subtlety).
+-- SUB-CAPTURE PATTERN: each unit's digit-run is its own nonterminal (`DDays ::= digit+`),
+-- so `value` can read the number via `nat DDays` — `Days ::= DDays "d"` captures both the
+-- full `"1d"` (as `Days`) AND the digits `"1"` (as `DDays`), since `decode` records nested
+-- refs. This resolves the "`nat Days` on `"1d"` is garbage" problem with no new machinery.
+-- Full spec: grammar + value + Int64 constraint.
 format_spec Duration where
   grammar
     Duration   ::= ["-"] Components
     Components ::= [Days] [Hours] [Minutes] [Seconds] [Millis]
-    Days       ::= digit+ "d"
-    Hours      ::= digit+ "h"
-    Minutes    ::= digit+ "m"
-    Seconds    ::= digit+ "s"
-    Millis     ::= digit+ "ms"
+    Days       ::= DDays "d"
+    Hours      ::= DHours "h"
+    Minutes    ::= DMinutes "m"
+    Seconds    ::= DSeconds "s"
+    Millis     ::= DMillis "ms"
+    DDays      ::= digit+
+    DHours     ::= digit+
+    DMinutes   ::= digit+
+    DSeconds   ::= digit+
+    DMillis    ::= digit+
+  value
+    nat DDays * 86400000 + nat DHours * 3600000 + nat DMinutes * 60000
+      + nat DSeconds * 1000 + nat DMillis
+  constraints
+    value ∈ [Int64.MIN, Int64.MAX]
   to "FormatSpec/Generated/Duration.lean"
 
 -- Inspect the generated per-production predicates + their binder names.
@@ -51,14 +65,10 @@ format_spec Duration where
 #check (Duration.IsWf.Components : String → Prop)
 #check (Duration.IsWf.Days       : String → Prop)
 
-/-!
-NOTE on `value` (a real design finding, deferred): the doc's `value` uses
-`d = nat value of Days component`, i.e. the *digits* of `Days`. But `Days ::= Digit⁺ 'd'`
-captures the whole `"1d"`, and our `nat Days` reads the entire captured substring — so
-`nat Days` on `"1d"` is garbage. To compute the duration value we'd need either to
-capture the digit-run as its own nonterminal (`Days ::= DayNum "d"`, `DayNum ::= digit+`,
-then `nat DayNum`), or a value-DSL "numeric prefix" reader. Surfaced by trying Duration;
-addressed separately.
--/
+-- The value function reads the sub-captured digit runs (not the "1d" strings):
+--   "1d2h30m" = 1·86400000 + 2·3600000 + 30·60000 = 95400000
+#eval Duration.computeValue "1d2h30m"   -- some 95400000
+#eval Duration.computeValue "500ms"     -- some 500
+#eval Duration.computeValue "2h"        -- some 7200000 (other units absent → 0)
 
 end FormatSpec.DurationDemo
