@@ -36,6 +36,12 @@ namespace FormatSpec
 
 open Lean Elab Command
 
+/-- Render a natural number as Unicode subscript digits (`1 ↦ "₁"`, `12 ↦ "₁₂"`), for
+    readable disambiguating suffixes on generated binder names (`rest₁`, `rest₂`, …). -/
+def subscript (n : Nat) : String :=
+  let subs := "₀₁₂₃₄₅₆₇₈₉".toList
+  String.ofList ((toString n).toList.map (fun c => subs[(c.toNat - '0'.toNat)]!))
+
 /-- The readable leaf predicate for a `term tok len`, matching the hand specs'
     vocabulary (`IsDigits`, `IsFixedDigits`, …). Names are emitted UNQUALIFIED (the
     generated file `open`s `FormatSpec`), so they read like the doc. -/
@@ -146,7 +152,8 @@ partial def seqPeel (specName : Name) (whole : TSyntax `term)
     else
       symPred specName item.sym whole
   | item :: rest =>
-    let restName := if depth == 0 then "rest" else s!"rest{depth+1}"
+    -- first remainder is `rest`, then `rest₁`, `rest₂`, … (Unicode subscripts)
+    let restName := if depth == 0 then "rest" else s!"rest{subscript depth}"
     let rst   := mkIdent (Name.mkSimple restName)
     let rstTm : TSyntax `term := ⟨rst.raw⟩
     let tl ← seqPeel specName rstTm rest (depth + 1)
@@ -171,13 +178,39 @@ partial def seqPeel (specName : Name) (whole : TSyntax `term)
     else
       mkPresent
 
-/-- Predicate that string `whole` matches sequence `items`. Non-optional sequences use
-    the flat, named form (`seqPredFlat`); sequences containing an optional item use the
-    peel form (`seqPeel`), which inlines literals and names captures. -/
+/-- A sequence of ALL-optional captures (e.g. `[Days][Hours][Minutes][Seconds][Millis]`).
+    The peel form would produce a combinatorial `present ∨ absent` tree; instead emit the
+    flat, linear form — bind one piece per component, concatenated in order, each piece
+    "empty or well-formed":
+      `∃ days hours …, whole = days ++ hours ++ … ∧ (days = "" ∨ IsWf.Days days) ∧ …`
+    This reads like the doc's one-line `[Days][Hours]…` and is O(n), not O(2ⁿ). -/
+def seqAllOptional (specName : Name) (whole : TSyntax `term) (items : List SymItem) :
+    CommandElabM (TSyntax `term) := do
+  let names := assignBinders items          -- every item is a capture ⟹ all `some`
+  let binders : List (TSyntax `ident) := names.filterMap (·.map (mkIdent ∘ Name.mkSimple))
+  let binderTms : List (TSyntax `term) := binders.map (fun i => ⟨i.raw⟩)
+  let concat ← match binderTms with
+    | []      => `("")
+    | x :: xs => xs.foldlM (fun acc y => `($acc ++ $y)) x
+  -- per-piece: `(piece = "" ∨ IsWf.<Nt> piece)`
+  let pieceProps ← (items.zip binderTms).mapM (fun (it, pTm) => do
+    let hd ← symPred specName it.sym pTm
+    `($pTm = "" ∨ $hd))
+  let eqp ← `($whole = $concat)
+  let body ← pieceProps.foldlM (fun acc p => `($acc ∧ $p)) eqp
+  binders.foldrM (fun id acc => `(∃ $id:ident, $acc)) body
+
+/-- Predicate that string `whole` matches sequence `items`:
+    * no optionals            → flat named form (`seqPredFlat`);
+    * ALL items optional captures → flat "empty-or-wf" form (`seqAllOptional`), avoiding
+      the combinatorial peel tree (the doc's `[Days][Hours]…` shape);
+    * otherwise (mixed)       → peel form (`seqPeel`). -/
 partial def seqPred (specName : Name) (whole : TSyntax `term)
     (items : List SymItem) (_depth : Nat := 0) : CommandElabM (TSyntax `term) := do
   if items.all (! ·.optional) then
     seqPredFlat specName whole items
+  else if items.all (fun it => it.optional && (binderBase it.sym).isSome) then
+    seqAllOptional specName whole items
   else
     seqPeel specName whole items 0
 

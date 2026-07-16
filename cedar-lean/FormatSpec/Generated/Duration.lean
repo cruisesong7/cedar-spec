@@ -40,57 +40,16 @@ def Duration.IsWf.Millis (s : String) : Prop :=
   ∃ digits, s = digits ++ "ms" ∧ IsDigits digits
 
 def Duration.IsWf.Components (s : String) : Prop :=
-  (∃ days rest,
-      s = days ++ rest ∧
-        Duration.IsWf.Days days ∧
-          ((∃ hours rest2,
-              rest = hours ++ rest2 ∧
-                Duration.IsWf.Hours hours ∧
-                  ((∃ minutes rest3,
-                      rest2 = minutes ++ rest3 ∧
-                        Duration.IsWf.Minutes minutes ∧
-                          ((∃ seconds rest4,
-                              rest3 = seconds ++ rest4 ∧
-                                Duration.IsWf.Seconds seconds ∧ (Duration.IsWf.Millis rest4 ∨ rest4 = "")) ∨
-                            Duration.IsWf.Millis rest3 ∨ rest3 = "")) ∨
-                    (∃ seconds rest4,
-                        rest2 = seconds ++ rest4 ∧
-                          Duration.IsWf.Seconds seconds ∧ (Duration.IsWf.Millis rest4 ∨ rest4 = "")) ∨
-                      Duration.IsWf.Millis rest2 ∨ rest2 = "")) ∨
-            (∃ minutes rest3,
-                rest = minutes ++ rest3 ∧
-                  Duration.IsWf.Minutes minutes ∧
-                    ((∃ seconds rest4,
-                        rest3 = seconds ++ rest4 ∧
-                          Duration.IsWf.Seconds seconds ∧ (Duration.IsWf.Millis rest4 ∨ rest4 = "")) ∨
-                      Duration.IsWf.Millis rest3 ∨ rest3 = "")) ∨
-              (∃ seconds rest4,
-                  rest = seconds ++ rest4 ∧ Duration.IsWf.Seconds seconds ∧ (Duration.IsWf.Millis rest4 ∨ rest4 = "")) ∨
-                Duration.IsWf.Millis rest ∨ rest = "")) ∨
-    (∃ hours rest2,
-        s = hours ++ rest2 ∧
-          Duration.IsWf.Hours hours ∧
-            ((∃ minutes rest3,
-                rest2 = minutes ++ rest3 ∧
-                  Duration.IsWf.Minutes minutes ∧
-                    ((∃ seconds rest4,
-                        rest3 = seconds ++ rest4 ∧
-                          Duration.IsWf.Seconds seconds ∧ (Duration.IsWf.Millis rest4 ∨ rest4 = "")) ∨
-                      Duration.IsWf.Millis rest3 ∨ rest3 = "")) ∨
-              (∃ seconds rest4,
-                  rest2 = seconds ++ rest4 ∧
-                    Duration.IsWf.Seconds seconds ∧ (Duration.IsWf.Millis rest4 ∨ rest4 = "")) ∨
-                Duration.IsWf.Millis rest2 ∨ rest2 = "")) ∨
-      (∃ minutes rest3,
-          s = minutes ++ rest3 ∧
-            Duration.IsWf.Minutes minutes ∧
-              ((∃ seconds rest4,
-                  rest3 = seconds ++ rest4 ∧
-                    Duration.IsWf.Seconds seconds ∧ (Duration.IsWf.Millis rest4 ∨ rest4 = "")) ∨
-                Duration.IsWf.Millis rest3 ∨ rest3 = "")) ∨
-        (∃ seconds rest4,
-            s = seconds ++ rest4 ∧ Duration.IsWf.Seconds seconds ∧ (Duration.IsWf.Millis rest4 ∨ rest4 = "")) ∨
-          Duration.IsWf.Millis s ∨ s = ""
+  ∃ days,
+    ∃ hours,
+      ∃ minutes,
+        ∃ seconds,
+          ∃ millis,
+            ((((s = days ++ hours ++ minutes ++ seconds ++ millis ∧ (days = "" ∨ Duration.IsWf.Days days)) ∧
+                    (hours = "" ∨ Duration.IsWf.Hours hours)) ∧
+                  (minutes = "" ∨ Duration.IsWf.Minutes minutes)) ∧
+                (seconds = "" ∨ Duration.IsWf.Seconds seconds)) ∧
+              (millis = "" ∨ Duration.IsWf.Millis millis)
 
 def Duration.IsWf.Duration (s : String) : Prop :=
   (∃ rest, s = "-" ++ rest ∧ Duration.IsWf.Components rest) ∨ Duration.IsWf.Components s
