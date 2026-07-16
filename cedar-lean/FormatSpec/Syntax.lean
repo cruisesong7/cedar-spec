@@ -246,9 +246,11 @@ def elabFormatSpec : CommandElab := fun stx => do
       let scIdent  := mkIdentFrom name (name.getId ++ `satisfiesConstraints)
       let accIdent := mkIdentFrom name (name.getId ++ `isAccepted)
       -- `abbrev` (reducible) so the `Decidable` instances on `isWf`/… fire through.
+      -- `isAccepted` is emitted as the explicit conjunction of the generated `isWf` and
+      -- `satisfiesConstraints` (self-evident, and reads better than an opaque helper call).
       emit (← `(abbrev $wfIdent  (s : String) : Prop := FormatSpec.isWf $grammarIdent $cIdent s))
       emit (← `(abbrev $scIdent  (s : String) : Prop := FormatSpec.satisfiesConstraints $grammarIdent $cIdent s))
-      emit (← `(abbrev $accIdent (s : String) : Prop := FormatSpec.isAccepted $grammarIdent $cIdent s))
+      emit (← `(abbrev $accIdent (s : String) : Prop := $wfIdent s ∧ $scIdent s))
       -- Bundle `computeValue` when a value expression was given.
       if let some veIdent := veIdent? then
         let cvIdent := mkIdentFrom name (name.getId ++ `computeValue)

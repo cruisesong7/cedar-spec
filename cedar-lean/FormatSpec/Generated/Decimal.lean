@@ -54,7 +54,7 @@ abbrev Decimal.satisfiesConstraints (s : String) : Prop :=
   FormatSpec.satisfiesConstraints Decimal.grammar Decimal.constraints s
 
 abbrev Decimal.isAccepted (s : String) : Prop :=
-  FormatSpec.isAccepted Decimal.grammar Decimal.constraints s
+  Decimal.isWf s ∧ Decimal.satisfiesConstraints s
 
 def Decimal.computeValue (s : String) : Option Int :=
   FormatSpec.computeValue Decimal.grammar Decimal.valueExpr s
