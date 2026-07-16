@@ -128,30 +128,58 @@ def seqPredFlat (specName : Name) (whole : TSyntax `term) (items : List SymItem)
     let body ← preds.foldlM (fun acc p => `($acc ∧ $p)) eqp
     binders.foldrM (fun id acc => `(∃ $id:ident, $acc)) body
 
-/-- Predicate that string `whole` matches sequence `items`. Non-optional sequences use
-    the flat, named form (`seqPredFlat`); sequences containing an optional item fall back
-    to the peel form (`∃ piece rest, … ∧ … ∨ absent`), since an optional changes the
-    concatenation shape. -/
-partial def seqPred (specName : Name) (whole : TSyntax `term)
-    (items : List SymItem) (depth : Nat := 0) : CommandElabM (TSyntax `term) := do
-  if items.all (! ·.optional) then
-    seqPredFlat specName whole items
-  else match items with
+/-- Peel a single item off the front of `whole`, then recurse on `rest`.
+    * a LITERAL is inlined into the equation with no binder (`whole = "-" ++ tl ∧ …`),
+      matching the hand spec's `∃ t, s = "-" ++ t ∧ …`;
+    * a CAPTURE binds a variable named after the nonterminal.
+    The trailing `rest` binder is named `rest` (or `rest2`, … at deeper peels).
+    A trailing empty sequence closes with the tail predicate directly (no `= ""`). -/
+partial def seqPeel (specName : Name) (whole : TSyntax `term)
+    (items : List SymItem) (depth : Nat) : CommandElabM (TSyntax `term) := do
+  match items with
   | []           => `($whole = "")
-  | item :: rest =>
-    let base := (binderBase item.sym).getD "piece"
-    let p    := mkIdent (Name.mkSimple s!"{base}")
-    let rst  := mkIdent (Name.mkSimple s!"rest{depth}")
-    let pTm  : TSyntax `term := ⟨p.raw⟩
-    let rstTm : TSyntax `term := ⟨rst.raw⟩
-    let hd   ← symPred specName item.sym pTm
-    let tl   ← seqPred specName rstTm rest (depth + 1)
-    let present ← `(∃ $p:ident $rst:ident, $whole = $pTm ++ $rstTm ∧ $hd ∧ $tl)
+  | [item] =>
+    -- last item: it must consume all of `whole` (no fresh rest binder needed)
     if item.optional then
-      let absent ← seqPred specName whole rest (depth + 1)
+      let hd ← symPred specName item.sym whole
+      `($hd ∨ $whole = "")
+    else
+      symPred specName item.sym whole
+  | item :: rest =>
+    let restName := if depth == 0 then "rest" else s!"rest{depth+1}"
+    let rst   := mkIdent (Name.mkSimple restName)
+    let rstTm : TSyntax `term := ⟨rst.raw⟩
+    let tl ← seqPeel specName rstTm rest (depth + 1)
+    let mkPresent : CommandElabM (TSyntax `term) := do
+      match item.sym, binderBase item.sym with
+      | .lit l, _ =>              -- literal: inline, bind only the rest
+        `(∃ $rst:ident, $whole = $(Syntax.mkStrLit l) ++ $rstTm ∧ $tl)
+      | sym, some base =>          -- capture: bind a named var + the rest
+        let p   := mkIdent (Name.mkSimple base)
+        let pTm : TSyntax `term := ⟨p.raw⟩
+        let hd ← symPred specName sym pTm
+        `(∃ $p:ident $rst:ident, $whole = $pTm ++ $rstTm ∧ $hd ∧ $tl)
+      | sym, none =>               -- (unreachable: only lits have no base)
+        let p   := mkIdent (Name.mkSimple "piece")
+        let pTm : TSyntax `term := ⟨p.raw⟩
+        let hd ← symPred specName sym pTm
+        `(∃ $p:ident $rst:ident, $whole = $pTm ++ $rstTm ∧ $hd ∧ $tl)
+    if item.optional then
+      let present ← mkPresent
+      let absent ← seqPeel specName whole rest (depth + 1)
       `($present ∨ $absent)
     else
-      pure present
+      mkPresent
+
+/-- Predicate that string `whole` matches sequence `items`. Non-optional sequences use
+    the flat, named form (`seqPredFlat`); sequences containing an optional item use the
+    peel form (`seqPeel`), which inlines literals and names captures. -/
+partial def seqPred (specName : Name) (whole : TSyntax `term)
+    (items : List SymItem) (_depth : Nat := 0) : CommandElabM (TSyntax `term) := do
+  if items.all (! ·.optional) then
+    seqPredFlat specName whole items
+  else
+    seqPeel specName whole items 0
 
 /-- Predicate that string `v` matches production `p` (disjunction over alternatives). -/
 def prodPred (specName : Name) (p : Production) (v : TSyntax `term) :

@@ -16,7 +16,7 @@ def Decimal.grammar : Grammar :=
       Production.mk "Fraction" [[SymItem.mk (Sym.term TokClass.digit (LenSpec.between 1 4)) false]]]
 
 def Decimal.IsWf.Integer (s : String) : Prop :=
-  (∃ piece rest0, s = piece ++ rest0 ∧ piece = "-" ∧ IsDigits rest0) ∨ IsDigits s
+  (∃ rest, s = "-" ++ rest ∧ IsDigits rest) ∨ IsDigits s
 
 def Decimal.IsWf.Fraction (s : String) : Prop :=
   IsDigitsBetween 1 4 s
