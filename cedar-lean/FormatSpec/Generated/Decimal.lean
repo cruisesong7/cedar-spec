@@ -7,49 +7,36 @@ import FormatSpec.Assemble
 
 open FormatSpec
 
-def Decimal.grammar : FormatSpec.Grammar :=
-  FormatSpec.Grammar.mk "Decimal"
-    [FormatSpec.Production.mk "Decimal"
-        [[FormatSpec.SymItem.mk (FormatSpec.Sym.ref "Integer") false,
-            FormatSpec.SymItem.mk (FormatSpec.Sym.lit ".") false,
-            FormatSpec.SymItem.mk (FormatSpec.Sym.ref "Fraction") false]],
-      FormatSpec.Production.mk "Integer"
-        [[FormatSpec.SymItem.mk (FormatSpec.Sym.lit "-") true,
-            FormatSpec.SymItem.mk (FormatSpec.Sym.term FormatSpec.TokClass.digit FormatSpec.LenSpec.atLeastOne) false]],
-      FormatSpec.Production.mk "Fraction"
-        [[FormatSpec.SymItem.mk (FormatSpec.Sym.term FormatSpec.TokClass.digit (FormatSpec.LenSpec.between 1 4))
-              false]]]
+def Decimal.grammar : Grammar :=
+  Grammar.mk "Decimal"
+    [Production.mk "Decimal"
+        [[SymItem.mk (Sym.ref "Integer") false, SymItem.mk (Sym.lit ".") false, SymItem.mk (Sym.ref "Fraction") false]],
+      Production.mk "Integer"
+        [[SymItem.mk (Sym.lit "-") true, SymItem.mk (Sym.term TokClass.digit LenSpec.atLeastOne) false]],
+      Production.mk "Fraction" [[SymItem.mk (Sym.term TokClass.digit (LenSpec.between 1 4)) false]]]
 
 def Decimal.IsWf.Integer (s : String) : Prop :=
-  (∃ piece rest0,
-      s = piece ++ rest0 ∧
-        piece = "-" ∧ (FormatSpec.TokClass.digit).all rest0 ∧ (FormatSpec.LenSpec.atLeastOne).sat (rest0).length) ∨
-    (FormatSpec.TokClass.digit).all s ∧ (FormatSpec.LenSpec.atLeastOne).sat (s).length
+  (∃ piece rest0, s = piece ++ rest0 ∧ piece = "-" ∧ IsDigits rest0) ∨ IsDigits s
 
 def Decimal.IsWf.Fraction (s : String) : Prop :=
-  (FormatSpec.TokClass.digit).all s ∧ (FormatSpec.LenSpec.between 1 4).sat (s).length
+  IsDigitsBetween 1 4 s
 
 def Decimal.IsWf.Decimal (s : String) : Prop :=
   ∃ integer,
     ∃ fraction, (s = integer ++ "." ++ fraction ∧ Decimal.IsWf.Integer integer) ∧ Decimal.IsWf.Fraction fraction
 
-def Decimal.valueExpr : FormatSpec.ValExpr :=
-  FormatSpec.ValExpr.add
-    (FormatSpec.ValExpr.mul (FormatSpec.ValExpr.int "Integer")
-      (FormatSpec.ValExpr.pow (FormatSpec.ValExpr.lit 10) (FormatSpec.ValExpr.lit 4)))
-    (FormatSpec.ValExpr.mul
-      (FormatSpec.ValExpr.mul (FormatSpec.ValExpr.signOf "Integer") (FormatSpec.ValExpr.nat "Fraction"))
-      (FormatSpec.ValExpr.pow (FormatSpec.ValExpr.lit 10)
-        (FormatSpec.ValExpr.sub (FormatSpec.ValExpr.lit 4) (FormatSpec.ValExpr.len "Fraction"))))
+def Decimal.valueExpr : ValExpr :=
+  ValExpr.add (ValExpr.mul (ValExpr.int "Integer") (ValExpr.pow (ValExpr.lit 10) (ValExpr.lit 4)))
+    (ValExpr.mul (ValExpr.mul (ValExpr.signOf "Integer") (ValExpr.nat "Fraction"))
+      (ValExpr.pow (ValExpr.lit 10) (ValExpr.sub (ValExpr.lit 4) (ValExpr.len "Fraction"))))
 
-def Decimal.valueFn : FormatSpec.Env → Int :=
+def Decimal.valueFn : Env → Int :=
   (Decimal.valueExpr).eval
 
-def Decimal.constraints : List FormatSpec.ConstraintEntry :=
-  [FormatSpec.ConstraintEntry.dsl
-      (FormatSpec.Constraint.and
-        (FormatSpec.Constraint.le (FormatSpec.ValExpr.lit (-9223372036854775808)) Decimal.valueExpr)
-        (FormatSpec.Constraint.le Decimal.valueExpr (FormatSpec.ValExpr.lit 9223372036854775807)))]
+def Decimal.constraints : List ConstraintEntry :=
+  [ConstraintEntry.dsl
+      (Constraint.and (Constraint.le (ValExpr.lit (-9223372036854775808)) Decimal.valueExpr)
+        (Constraint.le Decimal.valueExpr (ValExpr.lit 9223372036854775807)))]
 
 abbrev Decimal.isWf (s : String) : Prop :=
   FormatSpec.isWf Decimal.grammar Decimal.constraints s

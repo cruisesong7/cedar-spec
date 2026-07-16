@@ -194,22 +194,22 @@ syntax "opaqueVal " term:max : constraintExpr
 def elabConstraintWith (valueSub : Option (TSyntax `term)) :
     TSyntax `constraintExpr → MacroM (TSyntax `term)
   | `(constraintExpr| noLeadingZero $i:ident) =>
-      `(FormatSpec.Constraint.noLeadingZero $(quote i.getId.toString))
+      `(Constraint.noLeadingZero $(quote i.getId.toString))
   | `(constraintExpr| $i:ident = $l:str) =>
-      `(FormatSpec.Constraint.strEq $(quote i.getId.toString) $l)
+      `(Constraint.strEq $(quote i.getId.toString) $l)
   | `(constraintExpr| $a:valExpr ≤ $b:valExpr) => do
-      `(FormatSpec.Constraint.le $(← elabValExprWith valueSub a) $(← elabValExprWith valueSub b))
+      `(Constraint.le $(← elabValExprWith valueSub a) $(← elabValExprWith valueSub b))
   | `(constraintExpr| $a:valExpr < $b:valExpr) => do
-      `(FormatSpec.Constraint.lt $(← elabValExprWith valueSub a) $(← elabValExprWith valueSub b))
+      `(Constraint.lt $(← elabValExprWith valueSub a) $(← elabValExprWith valueSub b))
   | `(constraintExpr| $a:valExpr == $b:valExpr) => do
-      `(FormatSpec.Constraint.eq $(← elabValExprWith valueSub a) $(← elabValExprWith valueSub b))
+      `(Constraint.eq $(← elabValExprWith valueSub a) $(← elabValExprWith valueSub b))
   | `(constraintExpr| $e:valExpr ∈ [ $lo:valExpr , $hi:valExpr ]) => do
       -- desugar to `lo ≤ e ∧ e ≤ hi`
       let et ← elabValExprWith valueSub e
       let lot ← elabValExprWith valueSub lo
       let hit ← elabValExprWith valueSub hi
-      `(FormatSpec.Constraint.and (FormatSpec.Constraint.le $lot $et)
-                                  (FormatSpec.Constraint.le $et $hit))
+      `(Constraint.and (Constraint.le $lot $et)
+                                  (Constraint.le $et $hit))
   | _ => Macro.throwUnsupported
 
 /-- Translate a `constraintExpr` into a `Constraint` term with no `value` substitution. -/
@@ -221,9 +221,9 @@ def elabConstraint (c : TSyntax `constraintExpr) : MacroM (TSyntax `term) :=
     threads the value expression for `value` references. -/
 def elabEntryWith (valueSub : Option (TSyntax `term)) :
     TSyntax `constraintExpr → MacroM (TSyntax `term)
-  | `(constraintExpr| opaqueWf $t:term)  => `(FormatSpec.ConstraintEntry.opaque false $t)
-  | `(constraintExpr| opaqueVal $t:term) => `(FormatSpec.ConstraintEntry.opaque true $t)
-  | c => do `(FormatSpec.ConstraintEntry.dsl $(← elabConstraintWith valueSub c))
+  | `(constraintExpr| opaqueWf $t:term)  => `(ConstraintEntry.opaque false $t)
+  | `(constraintExpr| opaqueVal $t:term) => `(ConstraintEntry.opaque true $t)
+  | c => do `(ConstraintEntry.dsl $(← elabConstraintWith valueSub c))
 
 /-- `elabEntry` with no `value` substitution. -/
 def elabEntry (c : TSyntax `constraintExpr) : MacroM (TSyntax `term) :=

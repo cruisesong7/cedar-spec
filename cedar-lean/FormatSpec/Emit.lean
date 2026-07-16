@@ -36,22 +36,23 @@ namespace FormatSpec
 
 open Lean Elab Command
 
-/-- `TokClass` as a term. -/
-def tokTerm : TokClass → CommandElabM (TSyntax `term)
-  | .digit    => `(FormatSpec.TokClass.digit)
-  | .hexDigit => `(FormatSpec.TokClass.hexDigit)
+/-- The readable leaf predicate for a `term tok len`, matching the hand specs'
+    vocabulary (`IsDigits`, `IsFixedDigits`, …). Names are emitted UNQUALIFIED (the
+    generated file `open`s `FormatSpec`), so they read like the doc. -/
+def termPred (tok : TokClass) (ls : LenSpec) (v : TSyntax `term) : CommandElabM (TSyntax `term) :=
+  match tok, ls with
+  | .digit,    .atLeastOne    => `(IsDigits $v)
+  | .hexDigit, .atLeastOne    => `(IsHexDigits $v)
+  | .digit,    .exactly n     => `(IsFixedDigits $(quote n) $v)
+  | .hexDigit, .exactly n     => `(IsFixedHexDigits $(quote n) $v)
+  | .digit,    .between lo hi => `(IsDigitsBetween $(quote lo) $(quote hi) $v)
+  | .hexDigit, .between lo hi => `(IsHexDigitsBetween $(quote lo) $(quote hi) $v)
 
-/-- `LenSpec` as a term. -/
-def lenTerm : LenSpec → CommandElabM (TSyntax `term)
-  | .exactly n     => `(FormatSpec.LenSpec.exactly $(quote n))
-  | .between lo hi => `(FormatSpec.LenSpec.between $(quote lo) $(quote hi))
-  | .atLeastOne    => `(FormatSpec.LenSpec.atLeastOne)
-
-/-- Predicate that string `v` matches symbol `sym`. Refs resolve to
-    `<specName>.isWf.<Prod>`. -/
+/-- Predicate that string `v` matches symbol `sym`. Refs resolve to the sibling
+    per-production predicate `<specName>.IsWf.<Nt>`. -/
 def symPred (specName : Name) : Sym → (v : TSyntax `term) → CommandElabM (TSyntax `term)
   | .lit l,       v => `($v = $(Syntax.mkStrLit l))
-  | .term tok ls, v => do `(($(← tokTerm tok)).all $v ∧ ($(← lenTerm ls)).sat ($v).length)
+  | .term tok ls, v => termPred tok ls v
   | .ref nm,      v => do
       -- resolve to the sibling per-production predicate `<specName>.IsWf.<Nt>` (the
       -- capital-`I` Prop = the readable surface spec; cf. the bundle's lowercase `isWf`)

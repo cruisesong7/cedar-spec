@@ -137,22 +137,22 @@ syntax:75 valExpr:76 " ^ " valExpr:75 : valExpr
     makes a `value` reference an error. -/
 partial def elabValExprWith (valueSub : Option (TSyntax `term)) :
     TSyntax `valExpr → MacroM (TSyntax `term)
-  | `(valExpr| $n:num)      => `(FormatSpec.ValExpr.lit $n)
-  | `(valExpr| Int64.MAX)   => `(FormatSpec.ValExpr.lit 9223372036854775807)
-  | `(valExpr| Int64.MIN)   => `(FormatSpec.ValExpr.lit (-9223372036854775808))
+  | `(valExpr| $n:num)      => `(ValExpr.lit $n)
+  | `(valExpr| Int64.MAX)   => `(ValExpr.lit 9223372036854775807)
+  | `(valExpr| Int64.MIN)   => `(ValExpr.lit (-9223372036854775808))
   | `(valExpr| value)       =>
       match valueSub with
       | some t => pure t
       | none   => Macro.throwUnsupported
-  | `(valExpr| nat $i:ident)  => `(FormatSpec.ValExpr.nat $(quote i.getId.toString))
-  | `(valExpr| int $i:ident)  => `(FormatSpec.ValExpr.int $(quote i.getId.toString))
-  | `(valExpr| len $i:ident)  => `(FormatSpec.ValExpr.len $(quote i.getId.toString))
-  | `(valExpr| sign $i:ident) => `(FormatSpec.ValExpr.signOf $(quote i.getId.toString))
+  | `(valExpr| nat $i:ident)  => `(ValExpr.nat $(quote i.getId.toString))
+  | `(valExpr| int $i:ident)  => `(ValExpr.int $(quote i.getId.toString))
+  | `(valExpr| len $i:ident)  => `(ValExpr.len $(quote i.getId.toString))
+  | `(valExpr| sign $i:ident) => `(ValExpr.signOf $(quote i.getId.toString))
   | `(valExpr| ( $e:valExpr )) => elabValExprWith valueSub e
-  | `(valExpr| $a:valExpr + $b:valExpr) => do `(FormatSpec.ValExpr.add $(← elabValExprWith valueSub a) $(← elabValExprWith valueSub b))
-  | `(valExpr| $a:valExpr - $b:valExpr) => do `(FormatSpec.ValExpr.sub $(← elabValExprWith valueSub a) $(← elabValExprWith valueSub b))
-  | `(valExpr| $a:valExpr * $b:valExpr) => do `(FormatSpec.ValExpr.mul $(← elabValExprWith valueSub a) $(← elabValExprWith valueSub b))
-  | `(valExpr| $a:valExpr ^ $b:valExpr) => do `(FormatSpec.ValExpr.pow $(← elabValExprWith valueSub a) $(← elabValExprWith valueSub b))
+  | `(valExpr| $a:valExpr + $b:valExpr) => do `(ValExpr.add $(← elabValExprWith valueSub a) $(← elabValExprWith valueSub b))
+  | `(valExpr| $a:valExpr - $b:valExpr) => do `(ValExpr.sub $(← elabValExprWith valueSub a) $(← elabValExprWith valueSub b))
+  | `(valExpr| $a:valExpr * $b:valExpr) => do `(ValExpr.mul $(← elabValExprWith valueSub a) $(← elabValExprWith valueSub b))
+  | `(valExpr| $a:valExpr ^ $b:valExpr) => do `(ValExpr.pow $(← elabValExprWith valueSub a) $(← elabValExprWith valueSub b))
   | _ => Macro.throwUnsupported
 
 /-- Translate a `valExpr` with no `value` substitution (the common case). -/

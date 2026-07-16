@@ -129,33 +129,37 @@ syntax (name := formatSpecCmd)
 
 /-- Elaborate a `fmtLen` into a `LenSpec` term. -/
 def elabLen : TSyntax `fmtLen → CommandElabM (TSyntax `term)
-  | `(fmtLen| +)                      => `(FormatSpec.LenSpec.atLeastOne)
-  | `(fmtLen| { $n:num })             => `(FormatSpec.LenSpec.exactly $n)
-  | `(fmtLen| { $lo:num , $hi:num })  => `(FormatSpec.LenSpec.between $lo $hi)
+  | `(fmtLen| +)                      => `(LenSpec.atLeastOne)
+  | `(fmtLen| { $n:num })             => `(LenSpec.exactly $n)
+  | `(fmtLen| { $lo:num , $hi:num })  => `(LenSpec.between $lo $hi)
   | s                                 => throwErrorAt s "unrecognized length suffix"
 
 /-- Elaborate a non-optional item into a `Sym` term. Errors on a bare `[…]`
     (optionality is handled one level up, in `elabItem`). -/
+-- NOTE: the grammar-literal quotations below use UNQUALIFIED constructor names
+-- (`Sym.lit`, `Production.mk`, …). The generated file `open`s `FormatSpec`, so these
+-- resolve there and read cleanly; within this module `open Lean Elab Command` + the
+-- enclosing `namespace FormatSpec` also make them resolve.
 def elabSym : TSyntax `fmtItem → CommandElabM (TSyntax `term)
-  | `(fmtItem| $s:str)            => `(FormatSpec.Sym.lit $s)
-  | `(fmtItem| digit $l:fmtLen)   => do `(FormatSpec.Sym.term FormatSpec.TokClass.digit $(← elabLen l))
-  | `(fmtItem| hexDigit $l:fmtLen) => do `(FormatSpec.Sym.term FormatSpec.TokClass.hexDigit $(← elabLen l))
-  | `(fmtItem| $i:ident)          => `(FormatSpec.Sym.ref $(Syntax.mkStrLit i.getId.toString))
+  | `(fmtItem| $s:str)            => `(Sym.lit $s)
+  | `(fmtItem| digit $l:fmtLen)   => do `(Sym.term TokClass.digit $(← elabLen l))
+  | `(fmtItem| hexDigit $l:fmtLen) => do `(Sym.term TokClass.hexDigit $(← elabLen l))
+  | `(fmtItem| $i:ident)          => `(Sym.ref $(Syntax.mkStrLit i.getId.toString))
   | s                             => throwErrorAt s "unrecognized grammar item"
 
 /-- Elaborate an item into a `SymItem` term, setting `optional` for `[…]`. -/
 def elabItem : TSyntax `fmtItem → CommandElabM (TSyntax `term)
   | `(fmtItem| [ $inner:fmtItem ]) => do
-      `(FormatSpec.SymItem.mk $(← elabSym inner) true)
+      `(SymItem.mk $(← elabSym inner) true)
   | other => do
-      `(FormatSpec.SymItem.mk $(← elabSym other) false)
+      `(SymItem.mk $(← elabSym other) false)
 
 /-- Elaborate a single production into a `Production` term. -/
 def elabProd : TSyntax `fmtProd → CommandElabM (TSyntax `term)
   | `(fmtProd| $lhs:ident ::= $items:fmtItem*) => do
       let itemTerms ← items.mapM elabItem
       let sep : Syntax.TSepArray `term "," := .ofElems itemTerms
-      `(FormatSpec.Production.mk
+      `(Production.mk
           $(Syntax.mkStrLit lhs.getId.toString)
           [[$sep,*]])
   | s => throwErrorAt s "unrecognized production"
@@ -220,8 +224,8 @@ def elabFormatSpec : CommandElab := fun stx => do
       let prodTerms ← prods.mapM elabProd
       let sep : Syntax.TSepArray `term "," := .ofElems prodTerms
       let grammarIdent := mkIdentFrom name (name.getId ++ `grammar)
-      emit (← `(def $grammarIdent : FormatSpec.Grammar :=
-                    FormatSpec.Grammar.mk $(Syntax.mkStrLit name.getId.toString) [$sep,*]))
+      emit (← `(def $grammarIdent : Grammar :=
+                    Grammar.mk $(Syntax.mkStrLit name.getId.toString) [$sep,*]))
       -- Per-production well-formedness: emit `<Name>.IsWf.<Prod>` for each production as an
       -- INLINED structural predicate (∃ named captures, s = … ∧ …) — the readable SURFACE
       -- spec, a `Prop`, reading like the hand specs (`IsWfDatetime`, `IsWfV4`). Naming
@@ -247,13 +251,13 @@ def elabFormatSpec : CommandElab := fun stx => do
         let vfnIdent := mkIdentFrom name (name.getId ++ `valueFn)
         if inner[0].isToken "opaque" then
           let t : TSyntax `term := ⟨inner[2]⟩
-          emit (← `(def $vfnIdent : FormatSpec.Env → Int := $t))
+          emit (← `(def $vfnIdent : Env → Int := $t))
         else
           let ve : TSyntax `valExpr := ⟨inner⟩
           let valTerm ← liftMacroM (elabValExpr ve)
           let veIdent := mkIdentFrom name (name.getId ++ `valueExpr)
-          emit (← `(def $veIdent : FormatSpec.ValExpr := $valTerm))
-          emit (← `(def $vfnIdent : FormatSpec.Env → Int := ($veIdent).eval))
+          emit (← `(def $veIdent : ValExpr := $valTerm))
+          emit (← `(def $vfnIdent : Env → Int := ($veIdent).eval))
           -- Refer to the value expression by its generated name in constraints.
           valueSub := some (← `($veIdent))
           veIdent? := some veIdent
@@ -268,9 +272,9 @@ def elabFormatSpec : CommandElab := fun stx => do
         let exprs : Array (TSyntax `constraintExpr) := csStx.raw[1].getArgs.map (⟨·⟩)
         let cTerms ← exprs.mapM (fun e => liftMacroM (elabEntryWith valueSub e))
         let csep : Syntax.TSepArray `term "," := .ofElems cTerms
-        emit (← `(def $cIdent : List FormatSpec.ConstraintEntry := [$csep,*]))
+        emit (← `(def $cIdent : List ConstraintEntry := [$csep,*]))
       | none =>
-        emit (← `(def $cIdent : List FormatSpec.ConstraintEntry := []))
+        emit (← `(def $cIdent : List ConstraintEntry := []))
       -- Bundle the spec: `isWf` / `satisfiesConstraints` / `isAccepted` (design §16.1),
       -- referring to the generated grammar + constraints.
       -- RECONCILIATION GAP (TODO): the bundled `<Name>.isWf` below still uses the
@@ -286,6 +290,9 @@ def elabFormatSpec : CommandElab := fun stx => do
       -- `abbrev` (reducible) so the `Decidable` instances on `isWf`/… fire through.
       -- `isAccepted` is emitted as the explicit conjunction of the generated `isWf` and
       -- `satisfiesConstraints` (self-evident, and reads better than an opaque helper call).
+      -- These bundle helpers stay FULLY QUALIFIED (`FormatSpec.isWf`, …): unqualified,
+      -- they would clash with the generated `<Name>.isWf`/… defined right here (the
+      -- `<Name>` namespace would resolve `isWf` to the def being introduced).
       emit (← `(abbrev $wfIdent  (s : String) : Prop := FormatSpec.isWf $grammarIdent $cIdent s))
       emit (← `(abbrev $scIdent  (s : String) : Prop := FormatSpec.satisfiesConstraints $grammarIdent $cIdent s))
       emit (← `(abbrev $accIdent (s : String) : Prop := $wfIdent s ∧ $scIdent s))
@@ -302,14 +309,14 @@ def elabFormatSpec : CommandElab := fun stx => do
         if let `(fmtParser| parser $parseT:term projection $projT:term) := prStx then
           let rejIdent := mkIdentFrom name (name.getId ++ `reject)
           emit (← `(theorem $rejIdent :
-              FormatSpec.RejectStmt $grammarIdent $cIdent $parseT := by sorry))
+              RejectStmt $grammarIdent $cIdent $parseT := by sorry))
           if let some veIdent := veIdent? then
             let soundIdent := mkIdentFrom name (name.getId ++ `sound)
             let compIdent  := mkIdentFrom name (name.getId ++ `complete)
             emit (← `(theorem $soundIdent :
-                FormatSpec.SoundStmt $grammarIdent $cIdent $veIdent $parseT $projT := by sorry))
+                SoundStmt $grammarIdent $cIdent $veIdent $parseT $projT := by sorry))
             emit (← `(theorem $compIdent :
-                FormatSpec.CompleteStmt $grammarIdent $cIdent $veIdent $parseT $projT := by sorry))
+                CompleteStmt $grammarIdent $cIdent $veIdent $parseT $projT := by sorry))
       -- If a `to "path"` clause was given, write the collected declarations to that file.
       if let some toStx := to? then
         if let `(fmtTo| to $pathStx:str) := toStx then
