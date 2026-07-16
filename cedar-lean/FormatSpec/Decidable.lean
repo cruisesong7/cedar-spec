@@ -109,15 +109,82 @@ theorem exists_append_iff_any_split (s : String) (P : String → String → Bool
   · rintro ⟨i, _, hP⟩
     exact ⟨_, _, str_split s i, hP⟩
 
-/-- Correspondence: the boolean recognizer agrees with the `Prop` denotation.
+/-- Terminal correspondence: `recognizeTerm` agrees with `matchesTerm`. -/
+theorem term_corr (tok : TokClass) (ls : LenSpec) (s : String) :
+    recognizeTerm tok ls s = true ↔ matchesTerm tok ls s := by
+  simp only [recognizeTerm, matchesTerm, TokClass.all, Bool.and_eq_true,
+    decide_eq_true_eq, List.all_eq_true, decide_eq_true_eq]
+  exact ⟨fun ⟨h1, h2⟩ => ⟨h2, h1⟩, fun ⟨h1, h2⟩ => ⟨h2, h1⟩⟩
 
-    Proof shape (REMAINING): mutual well-founded induction on `fuel` then structural on
-    the sequence, with base cases `.lit`/`.term` discharged by `simp` (verified) and the
-    sequence case reduced to `exists_append_iff_any_split`. The leaf correspondences
-    hold; what remains is assembling the mutual induction. -/
+/-- Sequence correspondence, GIVEN the symbol correspondence at the same fuel. By
+    structural induction on the sequence; the split-point search collapses to the
+    `∃ s1 s2` existential via `exists_append_iff_any_split`. -/
+theorem seq_corr_of_sym (g : Grammar) (fuel : Nat)
+    (hsym : ∀ sym s, recognizeSym g fuel sym s = true ↔ matchesSym g fuel sym s) :
+    ∀ seq s, recognizeSeq g fuel seq s = true ↔ matchesSeq g fuel seq s := by
+  intro seq
+  induction seq with
+  | nil => intro s; simp [recognizeSeq, matchesSeq]
+  | cons item rest ih =>
+    intro s
+    have hsplit : ((List.range (s.toList.length + 1)).any (fun i =>
+        recognizeSym g fuel item.sym (String.ofList (s.toList.take i))
+          && recognizeSeq g fuel rest (String.ofList (s.toList.drop i))) = true)
+        ↔ (∃ s1 s2, s = s1 ++ s2 ∧ matchesSym g fuel item.sym s1 ∧ matchesSeq g fuel rest s2) := by
+      rw [← exists_append_iff_any_split s
+            (fun a b => recognizeSym g fuel item.sym a && recognizeSeq g fuel rest b)]
+      constructor
+      · rintro ⟨s1, s2, hs, hP⟩
+        rw [Bool.and_eq_true] at hP
+        exact ⟨s1, s2, hs, (hsym _ _).mp hP.1, (ih s2).mp hP.2⟩
+      · rintro ⟨s1, s2, hs, h1, h2⟩
+        exact ⟨s1, s2, hs, by rw [Bool.and_eq_true]; exact ⟨(hsym _ _).mpr h1, (ih s2).mpr h2⟩⟩
+    unfold recognizeSeq matchesSeq
+    by_cases hopt : item.optional = true
+    · simp only [hopt, if_true, Bool.or_eq_true]
+      rw [hsplit, ih s]
+    · simp only [Bool.not_eq_true] at hopt
+      simp only [hopt, Bool.false_eq_true, if_false]
+      rw [hsplit]
+
+/-- Production correspondence, GIVEN the sequence correspondence at the same fuel. -/
+theorem prod_corr_of_seq (g : Grammar) (fuel : Nat)
+    (hseq : ∀ seq s, recognizeSeq g fuel seq s = true ↔ matchesSeq g fuel seq s) :
+    ∀ p s, recognizeProd g fuel p s = true ↔ matchesProd g fuel p s := by
+  intro p s
+  simp only [recognizeProd, matchesProd, List.any_eq_true]
+  constructor
+  · rintro ⟨alt, hmem, hrec⟩; exact ⟨alt, hmem, (hseq alt s).mp hrec⟩
+  · rintro ⟨alt, hmem, hm⟩; exact ⟨alt, hmem, (hseq alt s).mpr hm⟩
+
+/-- Symbol correspondence, by induction on `fuel` (the `ref` case drops to a production
+    at `fuel-1`, closed with the sequence/production correspondences at that fuel). -/
+theorem sym_corr (g : Grammar) : ∀ fuel sym s,
+    recognizeSym g fuel sym s = true ↔ matchesSym g fuel sym s := by
+  intro fuel
+  induction fuel with
+  | zero =>
+    intro sym s
+    cases sym with
+    | lit l => simp [recognizeSym, matchesSym]
+    | term tok ls => simp only [recognizeSym, matchesSym]; exact term_corr tok ls s
+    | ref name => simp [recognizeSym, matchesSym]
+  | succ fuel ih =>
+    have hprod := prod_corr_of_seq g fuel (seq_corr_of_sym g fuel ih)
+    intro sym s
+    cases sym with
+    | lit l => simp [recognizeSym, matchesSym]
+    | term tok ls => simp only [recognizeSym, matchesSym]; exact term_corr tok ls s
+    | ref name =>
+      simp only [recognizeSym, matchesSym]
+      cases hp : g.prod? name with
+      | none => simp
+      | some p => simp only []; exact hprod p s
+
+/-- Correspondence: the boolean recognizer agrees with the `Prop` denotation. PROVED. -/
 theorem recognizeProd_iff (g : Grammar) (fuel : Nat) (p : Production) (s : String) :
-    recognizeProd g fuel p s = true ↔ matchesProd g fuel p s := by
-  sorry
+    recognizeProd g fuel p s = true ↔ matchesProd g fuel p s :=
+  prod_corr_of_seq g fuel (seq_corr_of_sym g fuel (sym_corr g fuel)) p s
 
 /-- `recognize` decides `IsWf`. -/
 theorem recognize_iff (g : Grammar) (s : String) :
