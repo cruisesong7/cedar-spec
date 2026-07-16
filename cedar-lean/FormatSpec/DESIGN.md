@@ -603,3 +603,47 @@ Net: `ValExpr` stays scalar-`Int` (correct); `Int64` = a `constraints` bound; ty
 structured output handled by projecting the PARSER's result down to `Int`(s) in the
 contract statement. The earlier `package` layer was construction the projection-based
 contract makes unnecessary.
+
+### 16.7 The expressiveness trilemma + the `opaque` escape (why a closed DSL is OK)
+
+A deep-embedded DSL is by construction a **closed, small subset** — you can only
+inspect/analyze what you deliberately put in the AST. This is not a wart; it is forced
+by an unavoidable trilemma. You can have at most TWO of:
+
+1. **Read any grammar off the bat** (arbitrary value/constraint expressiveness)
+2. **Analyzable** (affinity detection, auto-proofs — the edge over CoStar++)
+3. **Closed/small DSL** (no user extension needed)
+
+- CoStar++ picks **1 + 3**: arbitrary raw functions, no DSL — but NOT analyzable
+  (opaque `f vs`, definitional ceiling).
+- Our deep DSL picks **2 + 3**: analyzable + closed — but NOT arbitrarily expressive.
+- **1 + 2** (arbitrary AND analyzable) is essentially impossible — analyzing arbitrary
+  computation is undecidable.
+
+So "ideally read any grammar" and "the analysis edge that justifies the project" pull
+in OPPOSITE directions — they are the same tension. The resolution is NOT to make users
+extend the DSL, but a **tiered escape hatch** (the tiers of §16.4), so nobody is ever
+blocked:
+
+- **Tier 1** — DSL, affine → auto-proof.
+- **Tier 2** — DSL, flat non-affine (datetime) → executable + hand-proof.
+- **Tier 3** — `opaque := <raw Lean term>` → arbitrary Lean, = CoStar++ expressiveness,
+  definitional (loses auto-analysis, keeps correctness-vs-spec). **This is the "read
+  anything" answer.**
+
+A grammar outside the DSL vocabulary does NOT hit a wall — its unexpressible pieces drop
+to Tier 3 and get CoStar++-level treatment (no worse), while everything expressible stays
+in Tier 1/2 with full analysis. Graceful degradation, per-piece.
+
+**DSL extension** (adding a constructor to `ValExpr`/`Constraint`) is warranted ONLY for
+a construct that is *recurring AND analyzable* (e.g. if many formats need `hex X` values).
+The utility for extending is NOT a meta-DSL — it is (a) a documented ~5-edit recipe (AST
+constructor + `eval` case + `syntax` rule + elaborator case + decidability case), and
+(b) the deep AST itself: adding a constructor makes the compiler flag every non-exhaustive
+`match` that needs a new case (in `eval`, the classifier, decidability) — type-directed
+extension, a free benefit of deep embedding that shallow would not give. Extension is an
+optional optimization, NEVER on the critical path, because Tier 3 always unblocks.
+
+One-line framing: **the DSL is a fast path for the analyzable/common case; `opaque` is
+the universal path; extension is an optional optimization for recurring analyzable
+constructs, guided by the AST's exhaustiveness checking.**

@@ -46,7 +46,7 @@ durations, IP addresses, UUIDs, semver, ...), generate the Lean *specification*
 (`IsWf`, `computeValue`) and the parser *contract theorem* surface, auto-discharging
 the grammar-generic obligations and delegating the non-affine parts via typed holes.
 
-See `Cedar/Thm/Ext/GRAMMAR_TO_SPEC_DESIGN.md` for the full design.
+See `FormatSpec/DESIGN.md` for the full design.
 
 Module layout:
 * `FormatSpec.Grammar`  — core grammar data type (what the DSL elaborates into)

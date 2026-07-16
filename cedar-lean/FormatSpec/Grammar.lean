@@ -23,7 +23,7 @@ DAG of named productions in an EBNF subset, matching the `::=` grammars written 
 `doc/CedarDoc/*.lean`.
 
 Deliberately *not* here: the value function. Per the design (see
-`Cedar/Thm/Ext/GRAMMAR_TO_SPEC_DESIGN.md`), the value function is an *arbitrary Lean
+`FormatSpec/DESIGN.md`), the value function is an *arbitrary Lean
 term* supplied alongside the grammar; it is never stored as first-order data.
 `computeValue = valueFn ∘ decode` is always available (the author writes `valueFn`,
 `decode` is synthesized from this syntax). The tool's job is to *analyze* that term's
