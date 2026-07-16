@@ -25,35 +25,17 @@ def Decimal.IsWf.Decimal (s : String) : Prop :=
   ∃ integer,
     ∃ fraction, (s = integer ++ "." ++ fraction ∧ Decimal.IsWf.Integer integer) ∧ Decimal.IsWf.Fraction fraction
 
-def Decimal.valueExpr : ValExpr :=
-  ValExpr.add (ValExpr.mul (ValExpr.int "Integer") (ValExpr.pow (ValExpr.lit 10) (ValExpr.lit 4)))
-    (ValExpr.mul (ValExpr.mul (ValExpr.signOf "Integer") (ValExpr.nat "Fraction"))
-      (ValExpr.pow (ValExpr.lit 10) (ValExpr.sub (ValExpr.lit 4) (ValExpr.len "Fraction"))))
-
-def Decimal.valueFn : Env → Int :=
-  (Decimal.valueExpr).eval
-
 def Decimal.value (integer : String) (fraction : String) : Int :=
   intOf integer * (10 : Int) ^ ((4 : Int)).toNat +
     signOf integer * natOf fraction * (10 : Int) ^ (((4 : Int) - lenOf fraction)).toNat
-
-def Decimal.constraints : List ConstraintEntry :=
-  [ConstraintEntry.dsl
-      (Constraint.and (Constraint.le (ValExpr.lit (-9223372036854775808)) Decimal.valueExpr)
-        (Constraint.le Decimal.valueExpr (ValExpr.lit 9223372036854775807)))]
 
 def Decimal.Constraints (integer : String) (fraction : String) : Prop :=
   (-9223372036854775808 : Int) ≤ Decimal.value integer fraction ∧
     Decimal.value integer fraction ≤ (9223372036854775807 : Int)
 
-abbrev Decimal.isWf (s : String) : Prop :=
-  FormatSpec.isWf Decimal.grammar Decimal.constraints s
+def Decimal.SatisfiesConstraints (s : String) : Prop :=
+  Decimal.Constraints ((FormatSpec.envOf Decimal.grammar s "Integer").getD "")
+    ((FormatSpec.envOf Decimal.grammar s "Fraction").getD "")
 
-abbrev Decimal.satisfiesConstraints (s : String) : Prop :=
-  FormatSpec.satisfiesConstraints Decimal.grammar Decimal.constraints s
-
-abbrev Decimal.isAccepted (s : String) : Prop :=
-  Decimal.isWf s ∧ Decimal.satisfiesConstraints s
-
-def Decimal.computeValue (s : String) : Option Int :=
-  FormatSpec.computeValue Decimal.grammar Decimal.valueExpr s
+abbrev Decimal.IsAccepted (s : String) : Prop :=
+  Decimal.IsWf.Decimal s ∧ Decimal.SatisfiesConstraints s

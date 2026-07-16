@@ -91,14 +91,8 @@ def Datetime.IsWf.Datetime (s : String) : Prop :=
                 Datetime.IsWf.SSS sSS) ∧
               Datetime.IsWf.Offset offset
 
-def Datetime.constraints : List ConstraintEntry :=
-  []
+abbrev Datetime.SatisfiesConstraints (s : String) : Prop :=
+  True
 
-abbrev Datetime.isWf (s : String) : Prop :=
-  FormatSpec.isWf Datetime.grammar Datetime.constraints s
-
-abbrev Datetime.satisfiesConstraints (s : String) : Prop :=
-  FormatSpec.satisfiesConstraints Datetime.grammar Datetime.constraints s
-
-abbrev Datetime.isAccepted (s : String) : Prop :=
-  Datetime.isWf s ∧ Datetime.satisfiesConstraints s
+abbrev Datetime.IsAccepted (s : String) : Prop :=
+  Datetime.IsWf.Datetime s ∧ Datetime.SatisfiesConstraints s

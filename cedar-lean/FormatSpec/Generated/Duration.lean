@@ -69,43 +69,21 @@ def Duration.IsWf.Components (s : String) : Prop :=
 def Duration.IsWf.Duration (s : String) : Prop :=
   (∃ rest, s = "-" ++ rest ∧ Duration.IsWf.Components rest) ∨ Duration.IsWf.Components s
 
-def Duration.valueExpr : ValExpr :=
-  ValExpr.add
-    (ValExpr.add
-      (ValExpr.add
-        (ValExpr.add (ValExpr.mul (ValExpr.nat "DDays") (ValExpr.lit 86400000))
-          (ValExpr.mul (ValExpr.nat "DHours") (ValExpr.lit 3600000)))
-        (ValExpr.mul (ValExpr.nat "DMinutes") (ValExpr.lit 60000)))
-      (ValExpr.mul (ValExpr.nat "DSeconds") (ValExpr.lit 1000)))
-    (ValExpr.nat "DMillis")
-
-def Duration.valueFn : Env → Int :=
-  (Duration.valueExpr).eval
-
 def Duration.value (dDays : String) (dHours : String) (dMinutes : String) (dSeconds : String) (dMillis : String) :
     Int :=
   natOf dDays * (86400000 : Int) + natOf dHours * (3600000 : Int) + natOf dMinutes * (60000 : Int) +
       natOf dSeconds * (1000 : Int) +
     natOf dMillis
 
-def Duration.constraints : List ConstraintEntry :=
-  [ConstraintEntry.dsl
-      (Constraint.and (Constraint.le (ValExpr.lit (-9223372036854775808)) Duration.valueExpr)
-        (Constraint.le Duration.valueExpr (ValExpr.lit 9223372036854775807)))]
-
 def Duration.Constraints (dDays : String) (dHours : String) (dMinutes : String) (dSeconds : String) (dMillis : String) :
     Prop :=
   (-9223372036854775808 : Int) ≤ Duration.value dDays dHours dMinutes dSeconds dMillis ∧
     Duration.value dDays dHours dMinutes dSeconds dMillis ≤ (9223372036854775807 : Int)
 
-abbrev Duration.isWf (s : String) : Prop :=
-  FormatSpec.isWf Duration.grammar Duration.constraints s
+def Duration.SatisfiesConstraints (s : String) : Prop :=
+  Duration.Constraints ((FormatSpec.envOf Duration.grammar s "DDays").getD "")
+    ((FormatSpec.envOf Duration.grammar s "DHours").getD "") ((FormatSpec.envOf Duration.grammar s "DMinutes").getD "")
+    ((FormatSpec.envOf Duration.grammar s "DSeconds").getD "") ((FormatSpec.envOf Duration.grammar s "DMillis").getD "")
 
-abbrev Duration.satisfiesConstraints (s : String) : Prop :=
-  FormatSpec.satisfiesConstraints Duration.grammar Duration.constraints s
-
-abbrev Duration.isAccepted (s : String) : Prop :=
-  Duration.isWf s ∧ Duration.satisfiesConstraints s
-
-def Duration.computeValue (s : String) : Option Int :=
-  FormatSpec.computeValue Duration.grammar Duration.valueExpr s
+abbrev Duration.IsAccepted (s : String) : Prop :=
+  Duration.IsWf.Duration s ∧ Duration.SatisfiesConstraints s
