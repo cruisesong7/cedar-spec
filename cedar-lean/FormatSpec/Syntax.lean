@@ -85,12 +85,15 @@ syntax "hexDigit" fmtLen  : fmtItem  -- hex terminal
 syntax ident              : fmtItem  -- nonterminal reference
 syntax "[" fmtItem "]"    : fmtItem  -- optional
 
-/-- A production: `Name ::= item⁺` (single-sequence; alternation added later).
-    `withPosition`/`colGt` pins all items strictly right of the LHS column, so the
-    greedy `+` stops at the next production's LHS (same column) instead of consuming
-    it. -/
+/-- One alternative: a sequence of items. -/
+declare_syntax_cat fmtSeq
+syntax (colGt fmtItem)+ : fmtSeq
+
+/-- A production: `Name ::= seq | seq | …` — one or more `|`-separated alternatives.
+    `withPosition`/`colGt` pins the RHS strictly right of the LHS column, so the greedy
+    parse stops at the next production's LHS instead of consuming it. -/
 declare_syntax_cat fmtProd
-syntax withPosition(ident " ::= " (colGt fmtItem)+) : fmtProd
+syntax withPosition(ident " ::= " sepBy1(fmtSeq, " | ")) : fmtProd
 
 /-- The optional `constraints` section: predicates written in the constraint-DSL
     (`constraintExpr` category from `FormatSpec.Constraint`), one per line (`colGt`, like
@@ -154,14 +157,20 @@ def elabItem : TSyntax `fmtItem → CommandElabM (TSyntax `term)
   | other => do
       `(SymItem.mk $(← elabSym other) false)
 
-/-- Elaborate a single production into a `Production` term. -/
-def elabProd : TSyntax `fmtProd → CommandElabM (TSyntax `term)
-  | `(fmtProd| $lhs:ident ::= $items:fmtItem*) => do
+/-- Elaborate one alternative (`fmtSeq`) into a `List SymItem` term. -/
+def elabSeq : TSyntax `fmtSeq → CommandElabM (TSyntax `term)
+  | `(fmtSeq| $items:fmtItem*) => do
       let itemTerms ← items.mapM elabItem
       let sep : Syntax.TSepArray `term "," := .ofElems itemTerms
-      `(Production.mk
-          $(Syntax.mkStrLit lhs.getId.toString)
-          [[$sep,*]])
+      `([$sep,*])
+  | s => throwErrorAt s "unrecognized alternative"
+
+/-- Elaborate a production (`Name ::= seq | seq | …`) into a `Production` term. -/
+def elabProd : TSyntax `fmtProd → CommandElabM (TSyntax `term)
+  | `(fmtProd| $lhs:ident ::= $alts:fmtSeq|*) => do
+      let altTerms ← alts.getElems.mapM elabSeq
+      let sep : Syntax.TSepArray `term "," := .ofElems altTerms
+      `(Production.mk $(Syntax.mkStrLit lhs.getId.toString) [$sep,*])
   | s => throwErrorAt s "unrecognized production"
 
 /-! Parse the grammar syntax into `Grammar`/`Production`/`Sym` *values* (not terms), so
@@ -185,9 +194,13 @@ def parseItem : TSyntax `fmtItem → CommandElabM SymItem
   | `(fmtItem| [ $inner:fmtItem ]) => do pure { sym := ← parseSym inner, optional := true }
   | other                          => do pure { sym := ← parseSym other, optional := false }
 
+def parseSeq : TSyntax `fmtSeq → CommandElabM Seq
+  | `(fmtSeq| $items:fmtItem*) => items.toList.mapM parseItem
+  | s => throwErrorAt s "unrecognized alternative"
+
 def parseProd : TSyntax `fmtProd → CommandElabM Production
-  | `(fmtProd| $lhs:ident ::= $items:fmtItem*) => do
-      pure { name := lhs.getId.toString, alts := [(← items.toList.mapM parseItem)] }
+  | `(fmtProd| $lhs:ident ::= $alts:fmtSeq|*) => do
+      pure { name := lhs.getId.toString, alts := ← alts.getElems.toList.mapM parseSeq }
   | s => throwErrorAt s "unrecognized production"
 
 /-- Strip macro scopes from every identifier in a syntax tree, so pretty-printing yields
