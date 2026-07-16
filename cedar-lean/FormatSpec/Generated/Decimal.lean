@@ -20,14 +20,25 @@ def Decimal.grammar : FormatSpec.Grammar :=
         [[FormatSpec.SymItem.mk (FormatSpec.Sym.term FormatSpec.TokClass.digit (FormatSpec.LenSpec.between 1 4))
               false]]]
 
-abbrev Decimal.isWf.Decimal (s : String) : Prop :=
-  FormatSpec.IsWfProd Decimal.grammar "Decimal" s
+def Decimal.isWf.Integer (s : String) : Prop :=
+  (∃ p0 r0,
+      s = p0 ++ r0 ∧
+        p0 = "-" ∧
+          ∃ p1 r1,
+            r0 = p1 ++ r1 ∧
+              ((FormatSpec.TokClass.digit).all p1 ∧ (FormatSpec.LenSpec.atLeastOne).sat (p1).length) ∧ r1 = "") ∨
+    ∃ p1 r1,
+      s = p1 ++ r1 ∧ ((FormatSpec.TokClass.digit).all p1 ∧ (FormatSpec.LenSpec.atLeastOne).sat (p1).length) ∧ r1 = ""
 
-abbrev Decimal.isWf.Integer (s : String) : Prop :=
-  FormatSpec.IsWfProd Decimal.grammar "Integer" s
+def Decimal.isWf.Fraction (s : String) : Prop :=
+  ∃ p0 r0,
+    s = p0 ++ r0 ∧ ((FormatSpec.TokClass.digit).all p0 ∧ (FormatSpec.LenSpec.between 1 4).sat (p0).length) ∧ r0 = ""
 
-abbrev Decimal.isWf.Fraction (s : String) : Prop :=
-  FormatSpec.IsWfProd Decimal.grammar "Fraction" s
+def Decimal.isWf.Decimal (s : String) : Prop :=
+  ∃ p0 r0,
+    s = p0 ++ r0 ∧
+      Decimal.isWf.Integer p0 ∧
+        ∃ p1 r1, r0 = p1 ++ r1 ∧ p1 = "." ∧ ∃ p2 r2, r1 = p2 ++ r2 ∧ Decimal.isWf.Fraction p2 ∧ r2 = ""
 
 def Decimal.valueExpr : FormatSpec.ValExpr :=
   FormatSpec.ValExpr.add

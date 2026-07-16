@@ -20,6 +20,7 @@ import FormatSpec.Classify
 import FormatSpec.Value
 import FormatSpec.Constraint
 import FormatSpec.Assemble
+import FormatSpec.Emit
 
 /-!
 # `format_spec` embedded DSL
@@ -159,6 +160,32 @@ def elabProd : TSyntax `fmtProd → CommandElabM (TSyntax `term)
           [[$sep,*]])
   | s => throwErrorAt s "unrecognized production"
 
+/-! Parse the grammar syntax into `Grammar`/`Production`/`Sym` *values* (not terms), so
+    the inlined-predicate synthesizer (`FormatSpec.prodPred`, `topoOrder`) can run at
+    elaboration time. -/
+
+def parseLen : TSyntax `fmtLen → CommandElabM LenSpec
+  | `(fmtLen| +)                     => pure .atLeastOne
+  | `(fmtLen| { $n:num })            => pure (.exactly n.getNat)
+  | `(fmtLen| { $lo:num , $hi:num }) => pure (.between lo.getNat hi.getNat)
+  | s                                => throwErrorAt s "unrecognized length suffix"
+
+def parseSym : TSyntax `fmtItem → CommandElabM Sym
+  | `(fmtItem| $s:str)             => pure (.lit s.getString)
+  | `(fmtItem| digit $l:fmtLen)    => do pure (.term .digit (← parseLen l))
+  | `(fmtItem| hexDigit $l:fmtLen) => do pure (.term .hexDigit (← parseLen l))
+  | `(fmtItem| $i:ident)           => pure (.ref i.getId.toString)
+  | s                              => throwErrorAt s "unrecognized grammar item"
+
+def parseItem : TSyntax `fmtItem → CommandElabM SymItem
+  | `(fmtItem| [ $inner:fmtItem ]) => do pure { sym := ← parseSym inner, optional := true }
+  | other                          => do pure { sym := ← parseSym other, optional := false }
+
+def parseProd : TSyntax `fmtProd → CommandElabM Production
+  | `(fmtProd| $lhs:ident ::= $items:fmtItem*) => do
+      pure { name := lhs.getId.toString, alts := [(← items.toList.mapM parseItem)] }
+  | s => throwErrorAt s "unrecognized production"
+
 /-- Strip macro scopes from every identifier in a syntax tree, so pretty-printing yields
     clean source without hygiene daggers (`✝`). Used when writing generated declarations
     to a file. -/
@@ -195,15 +222,18 @@ def elabFormatSpec : CommandElab := fun stx => do
       let grammarIdent := mkIdentFrom name (name.getId ++ `grammar)
       emit (← `(def $grammarIdent : FormatSpec.Grammar :=
                     FormatSpec.Grammar.mk $(Syntax.mkStrLit name.getId.toString) [$sep,*]))
-      -- Per-production well-formedness: emit `<Name>.<Prod>.isWf` for each production
-      -- (named handles for decomposing contract-theorem proofs; mirrors the hand specs'
-      -- `DateComponents.syntaxWf` / `IsWfV4`). Each is `IsWfProd grammar "<Prod>"`.
-      for prod in prods do
-        if let `(fmtProd| $lhs:ident ::= $_:fmtItem*) := prod then
-          let pName := lhs.getId.toString
-          let pIdent := mkIdentFrom name (name.getId ++ `isWf ++ lhs.getId)
-          emit (← `(abbrev $pIdent (s : String) : Prop :=
-                        FormatSpec.IsWfProd $grammarIdent $(Syntax.mkStrLit pName) s))
+      -- Per-production well-formedness: emit `<Name>.isWf.<Prod>` for each production as
+      -- an INLINED structural predicate (∃ pieces, s = p0 ++ … ∧ …), reading like the
+      -- hand specs (`DateComponents.syntaxWf` / `IsWfV4`) rather than an interpreter call.
+      -- Emitted in topological (leaf-first) order so each references only already-defined
+      -- sibling predicates.
+      let gval : FormatSpec.Grammar :=
+        { start := name.getId.toString, prods := ← prods.toList.mapM parseProd }
+      for prod in FormatSpec.topoOrder gval do
+        let pIdent := mkIdentFrom name (name.getId ++ `isWf ++ prod.name.toName)
+        let sVar ← `(s)
+        let body ← FormatSpec.prodPred name.getId prod sVar
+        emit (← `(def $pIdent (s : String) : Prop := $body))
       -- Value (optional), processed BEFORE constraints so a constraint may refer to
       -- `value`. Two tiers: `value opaque := <term>` binds the raw `Env → Int`;
       -- `value <formula>` elaborates the value-DSL to a `ValExpr` (bound as `valueExpr`)
@@ -242,6 +272,13 @@ def elabFormatSpec : CommandElab := fun stx => do
         emit (← `(def $cIdent : List FormatSpec.ConstraintEntry := []))
       -- Bundle the spec: `isWf` / `satisfiesConstraints` / `isAccepted` (design §16.1),
       -- referring to the generated grammar + constraints.
+      -- RECONCILIATION GAP (TODO): the bundled `<Name>.isWf` below still uses the
+      -- `decode`-based interpreter (`FormatSpec.isWf grammar constraints`), whereas the
+      -- per-production `<Name>.isWf.<start>` is now the readable INLINED predicate. These
+      -- two well-formedness notions should be provably equal (inlined ≡ IsWfProd start ≡
+      -- interpreter), but that equivalence is not yet proved — so the bundle and the
+      -- inlined predicates coexist. Unifying them (bundle references the inlined start
+      -- predicate) + the equivalence proof is the next milestone.
       let wfIdent  := mkIdentFrom name (name.getId ++ `isWf)
       let scIdent  := mkIdentFrom name (name.getId ++ `satisfiesConstraints)
       let accIdent := mkIdentFrom name (name.getId ++ `isAccepted)
