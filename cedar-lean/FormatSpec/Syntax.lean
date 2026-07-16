@@ -222,15 +222,17 @@ def elabFormatSpec : CommandElab := fun stx => do
       let grammarIdent := mkIdentFrom name (name.getId ++ `grammar)
       emit (← `(def $grammarIdent : FormatSpec.Grammar :=
                     FormatSpec.Grammar.mk $(Syntax.mkStrLit name.getId.toString) [$sep,*]))
-      -- Per-production well-formedness: emit `<Name>.isWf.<Prod>` for each production as
-      -- an INLINED structural predicate (∃ pieces, s = p0 ++ … ∧ …), reading like the
-      -- hand specs (`DateComponents.syntaxWf` / `IsWfV4`) rather than an interpreter call.
+      -- Per-production well-formedness: emit `<Name>.syntaxWf.<Prod>` for each production
+      -- as an INLINED structural predicate (∃ named captures, s = … ∧ …), reading like the
+      -- hand specs' `DateComponents.syntaxWf` / `V4Components.syntaxWf`. The `syntaxWf`
+      -- name deliberately distinguishes these direct structural predicates from the
+      -- bundled, interpreter-based `<Name>.isWf` (which also folds in string constraints).
       -- Emitted in topological (leaf-first) order so each references only already-defined
       -- sibling predicates.
       let gval : FormatSpec.Grammar :=
         { start := name.getId.toString, prods := ← prods.toList.mapM parseProd }
       for prod in FormatSpec.topoOrder gval do
-        let pIdent := mkIdentFrom name (name.getId ++ `isWf ++ prod.name.toName)
+        let pIdent := mkIdentFrom name (name.getId ++ `syntaxWf ++ prod.name.toName)
         let sVar ← `(s)
         let body ← FormatSpec.prodPred name.getId prod sVar
         emit (← `(def $pIdent (s : String) : Prop := $body))

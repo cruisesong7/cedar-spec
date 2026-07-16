@@ -20,25 +20,18 @@ def Decimal.grammar : FormatSpec.Grammar :=
         [[FormatSpec.SymItem.mk (FormatSpec.Sym.term FormatSpec.TokClass.digit (FormatSpec.LenSpec.between 1 4))
               false]]]
 
-def Decimal.isWf.Integer (s : String) : Prop :=
-  (∃ p0 r0,
-      s = p0 ++ r0 ∧
-        p0 = "-" ∧
-          ∃ p1 r1,
-            r0 = p1 ++ r1 ∧
-              ((FormatSpec.TokClass.digit).all p1 ∧ (FormatSpec.LenSpec.atLeastOne).sat (p1).length) ∧ r1 = "") ∨
-    ∃ p1 r1,
-      s = p1 ++ r1 ∧ ((FormatSpec.TokClass.digit).all p1 ∧ (FormatSpec.LenSpec.atLeastOne).sat (p1).length) ∧ r1 = ""
+def Decimal.syntaxWf.Integer (s : String) : Prop :=
+  (∃ piece rest0,
+      s = piece ++ rest0 ∧
+        piece = "-" ∧ (FormatSpec.TokClass.digit).all rest0 ∧ (FormatSpec.LenSpec.atLeastOne).sat (rest0).length) ∨
+    (FormatSpec.TokClass.digit).all s ∧ (FormatSpec.LenSpec.atLeastOne).sat (s).length
 
-def Decimal.isWf.Fraction (s : String) : Prop :=
-  ∃ p0 r0,
-    s = p0 ++ r0 ∧ ((FormatSpec.TokClass.digit).all p0 ∧ (FormatSpec.LenSpec.between 1 4).sat (p0).length) ∧ r0 = ""
+def Decimal.syntaxWf.Fraction (s : String) : Prop :=
+  (FormatSpec.TokClass.digit).all s ∧ (FormatSpec.LenSpec.between 1 4).sat (s).length
 
-def Decimal.isWf.Decimal (s : String) : Prop :=
-  ∃ p0 r0,
-    s = p0 ++ r0 ∧
-      Decimal.isWf.Integer p0 ∧
-        ∃ p1 r1, r0 = p1 ++ r1 ∧ p1 = "." ∧ ∃ p2 r2, r1 = p2 ++ r2 ∧ Decimal.isWf.Fraction p2 ∧ r2 = ""
+def Decimal.syntaxWf.Decimal (s : String) : Prop :=
+  ∃ integer,
+    ∃ fraction, (s = integer ++ "." ++ fraction ∧ Decimal.syntaxWf.Integer integer) ∧ Decimal.syntaxWf.Fraction fraction
 
 def Decimal.valueExpr : FormatSpec.ValExpr :=
   FormatSpec.ValExpr.add

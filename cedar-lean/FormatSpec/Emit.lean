@@ -53,29 +53,103 @@ def symPred (specName : Name) : Sym → (v : TSyntax `term) → CommandElabM (TS
   | .lit l,       v => `($v = $(Syntax.mkStrLit l))
   | .term tok ls, v => do `(($(← tokTerm tok)).all $v ∧ ($(← lenTerm ls)).sat ($v).length)
   | .ref nm,      v => do
-      let refId := mkIdent (specName ++ `isWf ++ nm.toName)
+      -- resolve to the sibling per-production predicate `<specName>.syntaxWf.<Nt>`
+      let refId := mkIdent (specName ++ `syntaxWf ++ nm.toName)
       `($refId $v)
 
-/-- Predicate that string `whole` matches sequence `items`. Mirrors `matchesSeq`:
-    each item splits off a prefix (`∃ p rest, whole = p ++ rest ∧ symPred p ∧ seqPred rest`);
-    an optional item may instead be absent (`∨ seqPred rest whole`). Uses `depth` to name
-    fresh piece binders `p<depth>`. -/
-partial def seqPred (specName : Name) (whole : TSyntax `term) :
-    List SymItem → Nat → CommandElabM (TSyntax `term)
-  | [],           _     => `($whole = "")
-  | item :: rest, depth => do
-      let p    := mkIdent (Name.mkSimple s!"p{depth}")
-      let rst  := mkIdent (Name.mkSimple s!"r{depth}")
-      let pTm  : TSyntax `term := ⟨p.raw⟩
-      let rstTm : TSyntax `term := ⟨rst.raw⟩
-      let hd   ← symPred specName item.sym pTm
-      let tl   ← seqPred specName rstTm rest (depth + 1)
-      let present ← `(∃ $p:ident $rst:ident, $whole = $pTm ++ $rstTm ∧ $hd ∧ $tl)
-      if item.optional then
-        let absent ← seqPred specName whole rest (depth + 1)
-        `($present ∨ $absent)
+/-- Lowercase the first character (nonterminal `Integer` → binder `integer`). -/
+private def deCap (s : String) : String :=
+  match s.data with
+  | []      => s
+  | c :: cs => String.mk (c.toLower :: cs)
+
+/-- Base binder name for a capturing symbol; `none` for a literal (no binder). -/
+private def binderBase : Sym → Option String
+  | .lit _      => none
+  | .ref nm     => some (deCap nm)
+  | .term _ _   => some "digits"
+
+/-- Assign a readable, unique binder name to each capturing item (literals → `none`).
+    Names come from the nonterminal (`Integer` → `integer`); duplicates within one
+    sequence are disambiguated with a numeric suffix (`group0`, `group1`, …). -/
+private def assignBinders (items : List SymItem) : List (Option String) := Id.run do
+  let bases := items.map (binderBase ·.sym)
+  -- how many times each base occurs
+  let mut counts : Std.HashMap String Nat := {}
+  for b in bases do
+    if let some nm := b then counts := counts.insert nm ((counts.getD nm 0) + 1)
+  -- assign, suffixing only when a base is duplicated
+  let mut seen : Std.HashMap String Nat := {}
+  let mut out : List (Option String) := []
+  for b in bases do
+    match b with
+    | none    => out := out ++ [none]
+    | some nm =>
+      if (counts.getD nm 1) == 1 then
+        out := out ++ [some nm]
       else
-        pure present
+        let idx := seen.getD nm 0
+        seen := seen.insert nm (idx + 1)
+        out := out ++ [some s!"{nm}{idx}"]
+  return out
+
+/-- Predicate that string `whole` matches a NON-optional sequence, in the flat form that
+    reads like the hand spec: bind one variable per capture (named from the grammar),
+    literals inline in the concatenation.
+      `∃ integer fraction, whole = integer ++ "." ++ fraction ∧ P integer ∧ Q fraction`
+    A single lone capture needs no `∃` (`P whole` directly). -/
+def seqPredFlat (specName : Name) (whole : TSyntax `term) (items : List SymItem) :
+    CommandElabM (TSyntax `term) := do
+  let names := assignBinders items
+  -- single lone capture: apply its predicate directly to `whole`, no existential.
+  match items, names with
+  | [it], [some _] => symPred specName it.sym whole
+  | _, _ => do
+    -- concatenation pieces: literal string for lits, binder var for captures
+    let mut concatPieces : List (TSyntax `term) := []
+    let mut binders : List (TSyntax `ident) := []
+    let mut preds : List (TSyntax `term) := []
+    for (it, nm?) in items.zip names do
+      match nm? with
+      | none =>
+        if let .lit l := it.sym then concatPieces := concatPieces ++ [← `($(Syntax.mkStrLit l))]
+      | some nm =>
+        let id := mkIdent (Name.mkSimple nm)
+        let idTm : TSyntax `term := ⟨id.raw⟩
+        binders := binders ++ [id]
+        concatPieces := concatPieces ++ [idTm]
+        preds := preds ++ [← symPred specName it.sym idTm]
+    let concat ← match concatPieces with
+      | []      => `("")
+      | x :: xs => xs.foldlM (fun acc y => `($acc ++ $y)) x
+    let eqp ← `($whole = $concat)
+    let body ← preds.foldlM (fun acc p => `($acc ∧ $p)) eqp
+    binders.foldrM (fun id acc => `(∃ $id:ident, $acc)) body
+
+/-- Predicate that string `whole` matches sequence `items`. Non-optional sequences use
+    the flat, named form (`seqPredFlat`); sequences containing an optional item fall back
+    to the peel form (`∃ piece rest, … ∧ … ∨ absent`), since an optional changes the
+    concatenation shape. -/
+partial def seqPred (specName : Name) (whole : TSyntax `term)
+    (items : List SymItem) (depth : Nat := 0) : CommandElabM (TSyntax `term) := do
+  if items.all (! ·.optional) then
+    seqPredFlat specName whole items
+  else match items with
+  | []           => `($whole = "")
+  | item :: rest =>
+    let base := (binderBase item.sym).getD "piece"
+    let p    := mkIdent (Name.mkSimple s!"{base}")
+    let rst  := mkIdent (Name.mkSimple s!"rest{depth}")
+    let pTm  : TSyntax `term := ⟨p.raw⟩
+    let rstTm : TSyntax `term := ⟨rst.raw⟩
+    let hd   ← symPred specName item.sym pTm
+    let tl   ← seqPred specName rstTm rest (depth + 1)
+    let present ← `(∃ $p:ident $rst:ident, $whole = $pTm ++ $rstTm ∧ $hd ∧ $tl)
+    if item.optional then
+      let absent ← seqPred specName whole rest (depth + 1)
+      `($present ∨ $absent)
+    else
+      pure present
 
 /-- Predicate that string `v` matches production `p` (disjunction over alternatives). -/
 def prodPred (specName : Name) (p : Production) (v : TSyntax `term) :
