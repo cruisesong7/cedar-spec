@@ -104,15 +104,27 @@ syntax fmtConstraints := "constraints" (colGt constraintExpr)+
       definitional — no auto-analysis). Ensures no grammar is ever blocked. -/
 syntax fmtValue := "value" (("opaque" " := " term) <|> valExpr)
 
+/-- The optional `parser` clause: names the external hand-written parser and the
+    projection reading its value's `Int` denotation back out. When present, the command
+    emits the contract theorem *obligations* (`<Name>.sound`/`.complete`/`.reject`) as
+    `sorry`d theorems relating that parser to the generated spec. -/
+syntax fmtParser := "parser" term " projection " term
+
+/-- Optional trailing clause: `to "path.lean"` writes the generated declarations to a
+    `.lean` file on disk (de-hygiened, clean source), in addition to elaborating them. -/
+syntax fmtTo := "to " str
+
 /-- The `format_spec` command, sections in order: `grammar` (required), `value`
-    (optional), `constraints` (optional). `value` precedes `constraints` so a constraint
-    can refer to `value` (the elaborated value expression), matching the doc's
-    `Constraint: value(X) ∈ [Int64.MIN, Int64.MAX]`. -/
+    (optional), `constraints` (optional), `parser` (optional), `to` (optional). `value`
+    precedes `constraints` so a constraint can refer to `value`. The `parser` clause
+    triggers emission of the sorried contract theorems; `to` writes output to a file. -/
 syntax (name := formatSpecCmd)
-  "format_spec " ident " where "
+  ("#show ")? "format_spec " ident " where "
     "grammar" (colGt fmtProd)+
     (fmtValue)?
-    (fmtConstraints)? : command
+    (fmtConstraints)?
+    (fmtParser)?
+    (fmtTo)? : command
 
 /-- Elaborate a `fmtLen` into a `LenSpec` term. -/
 def elabLen : TSyntax `fmtLen → CommandElabM (TSyntax `term)
@@ -147,23 +159,41 @@ def elabProd : TSyntax `fmtProd → CommandElabM (TSyntax `term)
           [[$sep,*]])
   | s => throwErrorAt s "unrecognized production"
 
-/-- Elaborate the `format_spec` command. Currently emits:
-    * `<Name>.grammar : Grammar`            — from the `grammar` section (always)
-    * `<Name>.constraints : List (String → Prop)` — from `constraints` (if present)
-    * `<Name>.valueExpr : ValExpr`          — from `value` (if present), the deep AST
-      built from the in-place value-DSL formula (no `val%` wrapper)
+/-- Strip macro scopes from every identifier in a syntax tree, so pretty-printing yields
+    clean source without hygiene daggers (`✝`). Used when writing generated declarations
+    to a file. -/
+partial def deHygiene (stx : Syntax) : Syntax :=
+  match stx with
+  | .ident info rawVal val pre => .ident info rawVal val.eraseMacroScopes pre
+  | .node info kind args       => .node info kind (args.map deHygiene)
+  | s                          => s
 
-    Generation of `IsWf` / `SatisfiesConstraints` / `IsAccepted` / `computeValue` from
-    these is the next increment. -/
+/-- Elaborate the `format_spec` command: generates the spec declarations (grammar,
+    per-production `isWf`, value, constraints, bundled predicates, `computeValue`) and —
+    with a `parser` clause — the sorried contract theorems. `#show` logs the generated
+    source; `to "path"` writes it (de-hygiened) to a file. -/
 @[command_elab formatSpecCmd]
 def elabFormatSpec : CommandElab := fun stx => do
   match stx with
-  | `(format_spec $name:ident where grammar $prods:fmtProd* $[$v:fmtValue]? $[$cs:fmtConstraints]?) => do
+  | `($[#show%$sh]? format_spec $name:ident where grammar $prods:fmtProd* $[$v:fmtValue]? $[$cs:fmtConstraints]? $[$pr:fmtParser]? $[$to?:fmtTo]?) => do
+      -- `#show` logs every generated declaration; a `to "path"` clause additionally
+      -- collects them (de-hygiened) and writes clean source to that file. `emit` both
+      -- elaborates the command AND records/logs its source form as configured.
+      let showing := sh.isSome
+      let buf ← IO.mkRef (#[] : Array String)
+      let writing := to?.isSome
+      let emit (cmd : TSyntax `command) : CommandElabM Unit := do
+        if showing || writing then
+          let clean : TSyntax `command := ⟨deHygiene cmd.raw⟩
+          let src := (← liftCoreM (Lean.PrettyPrinter.ppCommand clean)).pretty
+          if showing then logInfo src
+          if writing then buf.modify (·.push src)
+        elabCommand cmd
       -- Grammar (always).
       let prodTerms ← prods.mapM elabProd
       let sep : Syntax.TSepArray `term "," := .ofElems prodTerms
       let grammarIdent := mkIdentFrom name (name.getId ++ `grammar)
-      elabCommand (← `(def $grammarIdent : FormatSpec.Grammar :=
+      emit (← `(def $grammarIdent : FormatSpec.Grammar :=
                     FormatSpec.Grammar.mk $(Syntax.mkStrLit name.getId.toString) [$sep,*]))
       -- Per-production well-formedness: emit `<Name>.<Prod>.isWf` for each production
       -- (named handles for decomposing contract-theorem proofs; mirrors the hand specs'
@@ -172,7 +202,7 @@ def elabFormatSpec : CommandElab := fun stx => do
         if let `(fmtProd| $lhs:ident ::= $_:fmtItem*) := prod then
           let pName := lhs.getId.toString
           let pIdent := mkIdentFrom name (name.getId ++ `isWf ++ lhs.getId)
-          elabCommand (← `(abbrev $pIdent (s : String) : Prop :=
+          emit (← `(abbrev $pIdent (s : String) : Prop :=
                         FormatSpec.IsWfProd $grammarIdent $(Syntax.mkStrLit pName) s))
       -- Value (optional), processed BEFORE constraints so a constraint may refer to
       -- `value`. Two tiers: `value opaque := <term>` binds the raw `Env → Int`;
@@ -180,20 +210,22 @@ def elabFormatSpec : CommandElab := fun stx => do
       -- whose `eval` is the value fn. `valueSub` is the `ValExpr` term substituted for a
       -- `value` reference in constraints (only in the DSL tier).
       let mut valueSub : Option (TSyntax `term) := none
+      let mut veIdent? : Option (TSyntax `ident) := none
       if let some vStx := v then
         let inner := vStx.raw[1]
         let vfnIdent := mkIdentFrom name (name.getId ++ `valueFn)
         if inner[0].isToken "opaque" then
           let t : TSyntax `term := ⟨inner[2]⟩
-          elabCommand (← `(def $vfnIdent : FormatSpec.Env → Int := $t))
+          emit (← `(def $vfnIdent : FormatSpec.Env → Int := $t))
         else
           let ve : TSyntax `valExpr := ⟨inner⟩
           let valTerm ← liftMacroM (elabValExpr ve)
           let veIdent := mkIdentFrom name (name.getId ++ `valueExpr)
-          elabCommand (← `(def $veIdent : FormatSpec.ValExpr := $valTerm))
-          elabCommand (← `(def $vfnIdent : FormatSpec.Env → Int := ($veIdent).eval))
+          emit (← `(def $veIdent : FormatSpec.ValExpr := $valTerm))
+          emit (← `(def $vfnIdent : FormatSpec.Env → Int := ($veIdent).eval))
           -- Refer to the value expression by its generated name in constraints.
           valueSub := some (← `($veIdent))
+          veIdent? := some veIdent
       -- Constraints (optional): constraint-DSL predicates, one per line, with `value`
       -- substituted by the value expression. The `fmtConstraints` node is
       -- `"constraints" (colGt constraintExpr)+`; arg 1 is the plain array of exprs.
@@ -205,18 +237,54 @@ def elabFormatSpec : CommandElab := fun stx => do
         let exprs : Array (TSyntax `constraintExpr) := csStx.raw[1].getArgs.map (⟨·⟩)
         let cTerms ← exprs.mapM (fun e => liftMacroM (elabEntryWith valueSub e))
         let csep : Syntax.TSepArray `term "," := .ofElems cTerms
-        elabCommand (← `(def $cIdent : List FormatSpec.ConstraintEntry := [$csep,*]))
+        emit (← `(def $cIdent : List FormatSpec.ConstraintEntry := [$csep,*]))
       | none =>
-        elabCommand (← `(def $cIdent : List FormatSpec.ConstraintEntry := []))
+        emit (← `(def $cIdent : List FormatSpec.ConstraintEntry := []))
       -- Bundle the spec: `isWf` / `satisfiesConstraints` / `isAccepted` (design §16.1),
       -- referring to the generated grammar + constraints.
       let wfIdent  := mkIdentFrom name (name.getId ++ `isWf)
       let scIdent  := mkIdentFrom name (name.getId ++ `satisfiesConstraints)
       let accIdent := mkIdentFrom name (name.getId ++ `isAccepted)
       -- `abbrev` (reducible) so the `Decidable` instances on `isWf`/… fire through.
-      elabCommand (← `(abbrev $wfIdent  (s : String) : Prop := FormatSpec.isWf $grammarIdent $cIdent s))
-      elabCommand (← `(abbrev $scIdent  (s : String) : Prop := FormatSpec.satisfiesConstraints $grammarIdent $cIdent s))
-      elabCommand (← `(abbrev $accIdent (s : String) : Prop := FormatSpec.isAccepted $grammarIdent $cIdent s))
+      emit (← `(abbrev $wfIdent  (s : String) : Prop := FormatSpec.isWf $grammarIdent $cIdent s))
+      emit (← `(abbrev $scIdent  (s : String) : Prop := FormatSpec.satisfiesConstraints $grammarIdent $cIdent s))
+      emit (← `(abbrev $accIdent (s : String) : Prop := FormatSpec.isAccepted $grammarIdent $cIdent s))
+      -- Bundle `computeValue` when a value expression was given.
+      if let some veIdent := veIdent? then
+        let cvIdent := mkIdentFrom name (name.getId ++ `computeValue)
+        emit (← `(def $cvIdent (s : String) : Option Int :=
+                      FormatSpec.computeValue $grammarIdent $veIdent s))
+      -- Contract obligations: when a `parser <p> projection <π>` clause is present, emit
+      -- `<Name>.sound` / `.complete` / `.reject` as `sorry`d theorems relating the
+      -- external parser to the generated spec (design §16.1). Requires a value expression
+      -- (for `sound`/`complete`); `reject` needs only the spec.
+      if let some prStx := pr then
+        if let `(fmtParser| parser $parseT:term projection $projT:term) := prStx then
+          let rejIdent := mkIdentFrom name (name.getId ++ `reject)
+          emit (← `(theorem $rejIdent :
+              FormatSpec.RejectStmt $grammarIdent $cIdent $parseT := by sorry))
+          if let some veIdent := veIdent? then
+            let soundIdent := mkIdentFrom name (name.getId ++ `sound)
+            let compIdent  := mkIdentFrom name (name.getId ++ `complete)
+            emit (← `(theorem $soundIdent :
+                FormatSpec.SoundStmt $grammarIdent $cIdent $veIdent $parseT $projT := by sorry))
+            emit (← `(theorem $compIdent :
+                FormatSpec.CompleteStmt $grammarIdent $cIdent $veIdent $parseT $projT := by sorry))
+      -- If a `to "path"` clause was given, write the collected declarations to that file.
+      if let some toStx := to? then
+        if let `(fmtTo| to $pathStx:str) := toStx then
+          let path := pathStx.getString
+          -- Drop-in header: imports + `open` so the file compiles on its own.
+          let header :=
+            s!"-- Generated by FormatSpec from `format_spec {name.getId}`. Do not edit by hand.\n\
+               \nimport FormatSpec.Denote\n\
+               import FormatSpec.Value\n\
+               import FormatSpec.Constraint\n\
+               import FormatSpec.Assemble\n\
+               \nopen FormatSpec\n\n"
+          let body := String.intercalate "\n\n" (← buf.get).toList
+          IO.FS.writeFile path (header ++ body ++ "\n")
+          logInfo m!"FormatSpec: wrote {(← buf.get).size} declarations to {path}"
   | _ => throwUnsupportedSyntax
 
 end FormatSpec

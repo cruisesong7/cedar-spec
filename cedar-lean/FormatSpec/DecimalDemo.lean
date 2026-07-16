@@ -37,6 +37,8 @@ open FormatSpec
 --   Fraction ::= Digit{1,4}
 --   value(Decimal) = int(Integer)·10⁴ + sign·nat(Fraction)·10^(4 − |Fraction|)
 --   Constraint: value ∈ [Int64.MIN, Int64.MAX]   (Int64 range; -2^63 .. 2^63-1)
+-- `to "…"` writes the generated declarations (drop-in, with imports) to that file,
+-- in addition to elaborating them here. Building this demo (re)generates the file.
 format_spec Decimal where
   grammar
     Decimal  ::= Integer "." Fraction
@@ -46,6 +48,7 @@ format_spec Decimal where
     int Integer * 10 ^ 4 + sign Integer * nat Fraction * 10 ^ (4 - len Fraction)
   constraints
     value ∈ [Int64.MIN, Int64.MAX]
+  to "FormatSpec/Generated/Decimal.lean"
 
 -- ════════════════════════════════════════════════════════════════════════════
 --  OUTPUT — the generated spec, run on sample strings
@@ -105,7 +108,35 @@ compiles to `WellFounded.fix` — opaque to the kernel, so `by decide` cannot re
 and we deliberately avoid `native_decide` (it would add the `ofReduceBool` axiom to the
 trust base). So this demo uses `#eval` (compiled evaluation, adds NO axiom to any
 theorem) to *illustrate* behavior. Actual correctness comes from hand-proved contract
-theorems (to come), not from `decide`-ing specific inputs.
+theorems, not from `decide`-ing specific inputs.
 -/
+
+-- ════════════════════════════════════════════════════════════════════════════
+--  CONTRACT THEOREMS — emitted as `sorry`d obligations against an external parser
+-- ════════════════════════════════════════════════════════════════════════════
+
+-- A stand-in "external" parser + projection, to demonstrate the `parser` clause. In real
+-- use these name the hand-written Cedar parser (e.g. `Cedar.Spec.Ext.Decimal.parse`) and
+-- its `Int` projection (`fun d => d.toInt`).
+structure DemoDec where val : Int
+def demoParse (s : String) : Option DemoDec := (computeValue Decimal.grammar Decimal.valueExpr s).map DemoDec.mk
+def demoProj (d : DemoDec) : Int := d.val
+
+-- The `parser` clause makes the command emit the contract obligations as sorried thms.
+format_spec DecimalWithParser where
+  grammar
+    Decimal  ::= Integer "." Fraction
+    Integer  ::= ["-"] digit+
+    Fraction ::= digit{1,4}
+  value
+    int Integer * 10 ^ 4 + sign Integer * nat Fraction * 10 ^ (4 - len Fraction)
+  constraints
+    value ∈ [Int64.MIN, Int64.MAX]
+  parser demoParse projection demoProj
+
+-- The emitted obligations (all `sorry`d — the proof-facing deliverable):
+#check (DecimalWithParser.sound    : SoundStmt _ _ _ demoParse demoProj)
+#check (DecimalWithParser.complete : CompleteStmt _ _ _ demoParse demoProj)
+#check (DecimalWithParser.reject   : RejectStmt _ _ demoParse)
 
 end FormatSpec.DecimalDemo

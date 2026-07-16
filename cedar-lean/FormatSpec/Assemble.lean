@@ -18,6 +18,7 @@ import FormatSpec.Grammar
 import FormatSpec.Denote
 import FormatSpec.Constraint
 import FormatSpec.Decode
+import FormatSpec.Value
 
 /-!
 # Assembling the bundled spec
@@ -67,5 +68,38 @@ instance (g : Grammar) (cs : List ConstraintEntry) (s : String) :
     Decidable (satisfiesConstraints g cs s) := by unfold satisfiesConstraints; infer_instance
 instance (g : Grammar) (cs : List ConstraintEntry) (s : String) :
     Decidable (isAccepted g cs s) := by unfold isAccepted; infer_instance
+
+/-! ## Contract obligations
+
+The statements of the parser-correctness theorems (design note §16.1). They relate an
+*external, hand-written* parser `parse : String → Option α` to the generated spec, via a
+projection `π : α → Int` that reads the parsed value's `Int` denotation back out (for a
+scalar type `α`; e.g. a `Decimal` projects to its stored `Int`).
+
+These are the theorem *statements* the command emits as `sorry`d obligations — the
+proof-facing deliverable the user (or a later automation pass) discharges. They are NOT
+proved here; they are parameterized over an arbitrary `parse`/`π`, so there is nothing to
+prove generically (the content is per-parser). -/
+
+variable {α : Type}
+
+/-- Soundness: if the external `parse` accepts `s` as `a`, then `s` is accepted by the
+    spec and the parsed value's projection equals `computeValue`. -/
+def SoundStmt (g : Grammar) (cs : List ConstraintEntry) (ve : ValExpr)
+    (parse : String → Option α) (π : α → Int) : Prop :=
+  ∀ s a, parse s = some a → isAccepted g cs s ∧ computeValue g ve s = some (π a)
+
+/-- Completeness: if `s` is accepted by the spec with value `v`, then `parse` accepts it
+    as some `a` whose projection is `v`. -/
+def CompleteStmt (g : Grammar) (cs : List ConstraintEntry) (ve : ValExpr)
+    (parse : String → Option α) (π : α → Int) : Prop :=
+  ∀ s v, isAccepted g cs s → computeValue g ve s = some v →
+    ∃ a, parse s = some a ∧ π a = v
+
+/-- Failure characterization: `parse` rejects exactly the strings that are not accepted
+    by the spec. -/
+def RejectStmt (g : Grammar) (cs : List ConstraintEntry)
+    (parse : String → Option α) : Prop :=
+  ∀ s, parse s = none ↔ ¬ isAccepted g cs s
 
 end FormatSpec
