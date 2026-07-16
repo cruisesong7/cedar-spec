@@ -222,17 +222,16 @@ def elabFormatSpec : CommandElab := fun stx => do
       let grammarIdent := mkIdentFrom name (name.getId ++ `grammar)
       emit (← `(def $grammarIdent : FormatSpec.Grammar :=
                     FormatSpec.Grammar.mk $(Syntax.mkStrLit name.getId.toString) [$sep,*]))
-      -- Per-production well-formedness: emit `<Name>.syntaxWf.<Prod>` for each production
-      -- as an INLINED structural predicate (∃ named captures, s = … ∧ …), reading like the
-      -- hand specs' `DateComponents.syntaxWf` / `V4Components.syntaxWf`. The `syntaxWf`
-      -- name deliberately distinguishes these direct structural predicates from the
-      -- bundled, interpreter-based `<Name>.isWf` (which also folds in string constraints).
-      -- Emitted in topological (leaf-first) order so each references only already-defined
-      -- sibling predicates.
+      -- Per-production well-formedness: emit `<Name>.IsWf.<Prod>` for each production as an
+      -- INLINED structural predicate (∃ named captures, s = … ∧ …) — the readable SURFACE
+      -- spec, a `Prop`, reading like the hand specs (`IsWfDatetime`, `IsWfV4`). Naming
+      -- convention: capital-`I` `IsWf` = the Prop you read/prove; lowercase `isWf` (the
+      -- bundle, below) = the behind-the-scenes decidable checker. Same root word `Wf`,
+      -- the case signals surface-vs-engine. Emitted in topological (leaf-first) order.
       let gval : FormatSpec.Grammar :=
         { start := name.getId.toString, prods := ← prods.toList.mapM parseProd }
       for prod in FormatSpec.topoOrder gval do
-        let pIdent := mkIdentFrom name (name.getId ++ `syntaxWf ++ prod.name.toName)
+        let pIdent := mkIdentFrom name (name.getId ++ `IsWf ++ prod.name.toName)
         let sVar ← `(s)
         let body ← FormatSpec.prodPred name.getId prod sVar
         emit (← `(def $pIdent (s : String) : Prop := $body))
@@ -326,6 +325,11 @@ def elabFormatSpec : CommandElab := fun stx => do
           let body := String.intercalate "\n\n" (← buf.get).toList
           IO.FS.writeFile path (header ++ body ++ "\n")
           logInfo m!"FormatSpec: wrote {(← buf.get).size} declarations to {path}"
+          -- CAVEAT: this write is an elaboration side-effect. `lake` *replays* cached
+          -- modules without re-running IO, so the file only refreshes on a genuine cache
+          -- miss — editing the generator alone may NOT rewrite the file. Regenerate
+          -- deliberately (touch/edit this module, or `lake clean`) after generator changes.
+          -- A robust codegen step would live in a separate `lake exe`, not elaboration.
   | _ => throwUnsupportedSyntax
 
 end FormatSpec

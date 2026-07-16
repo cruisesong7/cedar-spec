@@ -48,6 +48,7 @@ format_spec Decimal where
     int Integer * 10 ^ 4 + sign Integer * nat Fraction * 10 ^ (4 - len Fraction)
   constraints
     value ∈ [Int64.MIN, Int64.MAX]
+  to "FormatSpec/Generated/Decimal.lean"
 
 -- ════════════════════════════════════════════════════════════════════════════
 --  OUTPUT — the generated spec, run on sample strings
@@ -90,12 +91,12 @@ format_spec Decimal where
 #eval decide (Decimal.isAccepted "1.5")  -- true  (well-formed and in Int64 range)
 #eval decide (Decimal.isAccepted "1.x")  -- false (not well-formed)
 
--- ── Per-production well-formedness (generated: one `syntaxWf` per production) ──
--- Inlined structural predicates (∃ named captures, s = … ∧ …), the analogue of the hand
--- specs' `DateComponents.syntaxWf` / `V4Components.syntaxWf`. Named `syntaxWf` to
--- distinguish from the bundled, interpreter-based `Decimal.isWf`.
-#check (Decimal.syntaxWf.Integer  : String → Prop)
-#check (Decimal.syntaxWf.Fraction : String → Prop)
+-- ── Per-production well-formedness (generated: one `IsWf` Prop per production) ──
+-- Inlined structural predicates (∃ named captures, s = … ∧ …), reading like the hand
+-- specs (`IsWfDatetime`, `IsWfV4`). Naming: capital-`I` `Decimal.IsWf.*` = the SURFACE
+-- Prop you read/prove; lowercase `Decimal.isWf` = the behind-the-scenes decidable checker.
+#check (Decimal.IsWf.Integer  : String → Prop)
+#check (Decimal.IsWf.Fraction : String → Prop)
 -- the top-level `IsWf` equals the start production's `IsWfProd`, pointwise (proved once
 -- generically in `Denote` as `isWf_eq_isWfProd_start`):
 example (s : String) : IsWf Decimal.grammar s = IsWfProd Decimal.grammar "Decimal" s :=

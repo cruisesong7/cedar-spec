@@ -53,8 +53,9 @@ def symPred (specName : Name) : Sym → (v : TSyntax `term) → CommandElabM (TS
   | .lit l,       v => `($v = $(Syntax.mkStrLit l))
   | .term tok ls, v => do `(($(← tokTerm tok)).all $v ∧ ($(← lenTerm ls)).sat ($v).length)
   | .ref nm,      v => do
-      -- resolve to the sibling per-production predicate `<specName>.syntaxWf.<Nt>`
-      let refId := mkIdent (specName ++ `syntaxWf ++ nm.toName)
+      -- resolve to the sibling per-production predicate `<specName>.IsWf.<Nt>` (the
+      -- capital-`I` Prop = the readable surface spec; cf. the bundle's lowercase `isWf`)
+      let refId := mkIdent (specName ++ `IsWf ++ nm.toName)
       `($refId $v)
 
 /-- Lowercase the first character (nonterminal `Integer` → binder `integer`). -/
