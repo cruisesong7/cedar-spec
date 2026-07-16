@@ -246,6 +246,7 @@ def elabFormatSpec : CommandElab := fun stx => do
       -- `value` reference in constraints (only in the DSL tier).
       let mut valueSub : Option (TSyntax `term) := none
       let mut veIdent? : Option (TSyntax `ident) := none
+      let mut valueCaps : List String := []
       if let some vStx := v then
         let inner := vStx.raw[1]
         let vfnIdent := mkIdentFrom name (name.getId ++ `valueFn)
@@ -259,16 +260,20 @@ def elabFormatSpec : CommandElab := fun stx => do
           let veIdent := mkIdentFrom name (name.getId ++ `valueExpr)
           emit (← `(def $veIdent : ValExpr := $valTerm))
           emit (← `(def $vfnIdent : Env → Int := ($veIdent).eval))
-          -- surface: a READABLE `<Name>.value` (env → Int) written with the named field
-          -- readers (`env.intVal "X" * …`), the pretty counterpart of the AST — reads
-          -- like the doc's `value(X) = …`.
-          let envVar ← `(env)
-          let readable ← liftMacroM (elabValReadableWith envVar none ve)
+          -- surface: a READABLE `<Name>.value` taking the captured component STRINGS
+          -- directly (no `Env`), via `natOf`/`intOf`/… — reads like the doc's
+          -- `value(Integer, Fraction) = int(Integer)·10⁴ + …`.
+          let readable ← liftMacroM (elabValReadableWith none ve)
+          let capNames := FormatSpec.valExprCaptures ve
+          let binders : Array (TSyntax `ident) :=
+            (capNames.map (fun c => mkIdent (Name.mkSimple (FormatSpec.surfaceBinder c)))).toArray
           let valIdent := mkIdentFrom name (name.getId ++ `value)
-          emit (← `(def $valIdent (env : Env) : Int := $readable))
-          -- Refer to the value expression by its generated name in constraints.
+          emit (← `(def $valIdent $[($binders : String)]* : Int := $readable))
+          -- Record the value's capture list so a `value` reference in constraints can be
+          -- rendered as `<Name>.value arg…` with the matching component binders.
           valueSub := some (← `($veIdent))
           veIdent? := some veIdent
+          valueCaps := capNames
       -- Constraints (optional): constraint-DSL predicates, one per line, with `value`
       -- substituted by the value expression. The `fmtConstraints` node is
       -- `"constraints" (colGt constraintExpr)+`; arg 1 is the plain array of exprs.
@@ -281,19 +286,29 @@ def elabFormatSpec : CommandElab := fun stx => do
         let cTerms ← exprs.mapM (fun e => liftMacroM (elabEntryWith valueSub e))
         let csep : Syntax.TSepArray `term "," := .ofElems cTerms
         emit (← `(def $cIdent : List ConstraintEntry := [$csep,*]))
-        -- surface: a READABLE `<Name>.Constraints` Prop (env → Prop), conjoining each
-        -- constraint rendered with the named readers — pretty counterpart of the AST list.
-        -- A `value` reference renders as the readable `<Name>.value env`.
-        let envVar ← `(env)
+        -- surface: a READABLE `<Name>.Constraints` Prop taking the captured component
+        -- STRINGS directly (no `Env`). A `value` reference renders as the readable
+        -- `<Name>.value <valueComponents>`. Parameters = every capture referenced by the
+        -- constraints ∪ (if `value` is used) the value's captures.
         let valSubR : Option (TSyntax `term) ← match veIdent? with
-          | some _ => let vId := mkIdentFrom name (name.getId ++ `value); pure (some (← `($vId $envVar)))
+          | some _ =>
+            let vId := mkIdentFrom name (name.getId ++ `value)
+            let vArgs : Array (TSyntax `term) :=
+              (valueCaps.map (fun c => ⟨(mkIdent (Name.mkSimple (FormatSpec.surfaceBinder c))).raw⟩)).toArray
+            pure (some (← `($vId $vArgs*)))
           | none   => pure none
-        let rTerms ← exprs.mapM (fun e => liftMacroM (elabConstraintReadable envVar valSubR e))
+        let rTerms ← exprs.mapM (fun e => liftMacroM (elabConstraintReadable valSubR e))
         let body ← match rTerms.toList with
           | []      => `(True)
           | x :: xs => xs.foldlM (fun acc p => `($acc ∧ $p)) x
+        -- capture params: constraints' own captures ∪ value's captures (if `value` used)
+        let usesValue := exprs.any (fun e => (FormatSpec.constraintUsesValue e))
+        let cCaps := (exprs.toList.flatMap FormatSpec.constraintCaptures
+                        ++ (if usesValue then valueCaps else [])).eraseDups
+        let cBinders : Array (TSyntax `ident) :=
+          (cCaps.map (fun c => mkIdent (Name.mkSimple (FormatSpec.surfaceBinder c)))).toArray
         let cRIdent := mkIdentFrom name (name.getId ++ `Constraints)
-        emit (← `(def $cRIdent (env : Env) : Prop := $body))
+        emit (← `(def $cRIdent $[($cBinders : String)]* : Prop := $body))
       | none =>
         emit (← `(def $cIdent : List ConstraintEntry := []))
       -- Bundle the spec: `isWf` / `satisfiesConstraints` / `isAccepted` (design §16.1),

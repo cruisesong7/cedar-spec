@@ -234,27 +234,56 @@ def elabEntry (c : TSyntax `constraintExpr) : MacroM (TSyntax `term) :=
     counterpart of the `Constraint` AST, just as `<Name>.value` is for `ValExpr`. Emitted
     as the generated `<Name>.SatisfiesConstraints`. `valueSub` substitutes a readable term
     for a `value` reference. -/
-def elabConstraintReadable (env : TSyntax `term) (valueSub : Option (TSyntax `term)) :
+def elabConstraintReadable (valueSub : Option (TSyntax `term)) :
     TSyntax `constraintExpr → MacroM (TSyntax `term)
   | `(constraintExpr| noLeadingZero $i:ident) =>
-      `(match ($env) $(quote i.getId.toString) with
-        | some s => s.startsWith "0" → s = "0" | none => True)
+      let b := mkIdent (Name.mkSimple (surfaceBinder i.getId.toString))
+      `(($b).startsWith "0" → $b = "0")
   | `(constraintExpr| $i:ident = $l:str) =>
-      `(match ($env) $(quote i.getId.toString) with | some s => s = $l | none => True)
+      let b := mkIdent (Name.mkSimple (surfaceBinder i.getId.toString))
+      `($b = $l)
   | `(constraintExpr| $a:valExpr ≤ $b:valExpr) => do
-      `($(← elabValReadableWith env valueSub a) ≤ $(← elabValReadableWith env valueSub b))
+      `($(← elabValReadableWith valueSub a) ≤ $(← elabValReadableWith valueSub b))
   | `(constraintExpr| $a:valExpr < $b:valExpr) => do
-      `($(← elabValReadableWith env valueSub a) < $(← elabValReadableWith env valueSub b))
+      `($(← elabValReadableWith valueSub a) < $(← elabValReadableWith valueSub b))
   | `(constraintExpr| $a:valExpr == $b:valExpr) => do
-      `($(← elabValReadableWith env valueSub a) = $(← elabValReadableWith env valueSub b))
+      `($(← elabValReadableWith valueSub a) = $(← elabValReadableWith valueSub b))
   | `(constraintExpr| $e:valExpr ∈ [ $lo:valExpr , $hi:valExpr ]) => do
-      let et  ← elabValReadableWith env valueSub e
-      let lot ← elabValReadableWith env valueSub lo
-      let hit ← elabValReadableWith env valueSub hi
+      let et  ← elabValReadableWith valueSub e
+      let lot ← elabValReadableWith valueSub lo
+      let hit ← elabValReadableWith valueSub hi
       `($lot ≤ $et ∧ $et ≤ $hit)
-  | `(constraintExpr| opaqueWf $t:term)  => `(($t) ($env) = true)
-  | `(constraintExpr| opaqueVal $t:term) => `(($t) ($env) = true)
   | _ => Macro.throwUnsupported
+
+/-- Does a `valExpr` reference the `value` keyword? -/
+partial def valExprUsesValue : TSyntax `valExpr → Bool
+  | `(valExpr| value) => true
+  | `(valExpr| ( $e:valExpr )) => valExprUsesValue e
+  | `(valExpr| $a:valExpr + $b:valExpr) => valExprUsesValue a || valExprUsesValue b
+  | `(valExpr| $a:valExpr - $b:valExpr) => valExprUsesValue a || valExprUsesValue b
+  | `(valExpr| $a:valExpr * $b:valExpr) => valExprUsesValue a || valExprUsesValue b
+  | `(valExpr| $a:valExpr ^ $b:valExpr) => valExprUsesValue a || valExprUsesValue b
+  | _ => false
+
+/-- Does a `constraintExpr` reference `value`? -/
+def constraintUsesValue : TSyntax `constraintExpr → Bool
+  | `(constraintExpr| $a:valExpr ≤ $b:valExpr) => valExprUsesValue a || valExprUsesValue b
+  | `(constraintExpr| $a:valExpr < $b:valExpr) => valExprUsesValue a || valExprUsesValue b
+  | `(constraintExpr| $a:valExpr == $b:valExpr) => valExprUsesValue a || valExprUsesValue b
+  | `(constraintExpr| $e:valExpr ∈ [ $lo:valExpr , $hi:valExpr ]) =>
+      valExprUsesValue e || valExprUsesValue lo || valExprUsesValue hi
+  | _ => false
+
+/-- Capture names referenced by a `constraintExpr` (for surface parameter binders). -/
+def constraintCaptures : TSyntax `constraintExpr → List String
+  | `(constraintExpr| noLeadingZero $i:ident) => [i.getId.toString]
+  | `(constraintExpr| $i:ident = $_:str)      => [i.getId.toString]
+  | `(constraintExpr| $a:valExpr ≤ $b:valExpr) => (valExprCaptures a ++ valExprCaptures b).eraseDups
+  | `(constraintExpr| $a:valExpr < $b:valExpr) => (valExprCaptures a ++ valExprCaptures b).eraseDups
+  | `(constraintExpr| $a:valExpr == $b:valExpr) => (valExprCaptures a ++ valExprCaptures b).eraseDups
+  | `(constraintExpr| $e:valExpr ∈ [ $lo:valExpr , $hi:valExpr ]) =>
+      (valExprCaptures e ++ valExprCaptures lo ++ valExprCaptures hi).eraseDups
+  | _ => []
 
 /-- `cstr% <predicate>` : a `Constraint` value from the constraint-DSL. -/
 macro "cstr% " c:constraintExpr : term => elabConstraint c

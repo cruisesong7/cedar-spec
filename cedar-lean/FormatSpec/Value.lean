@@ -102,6 +102,18 @@ def Env.intVal  (env : Env) (f : String) : Int := match env f with | some s => r
 def Env.lenVal  (env : Env) (f : String) : Int := match env f with | some s => (s.length : Int)   | none => 0
 def Env.signVal (env : Env) (f : String) : Int := match env f with | some s => if s.startsWith "-" then -1 else 1 | none => 1
 
+/-! ### String-level readers (surface API)
+
+The SURFACE value/constraint functions are phrased directly over the captured component
+*strings* (matching the doc's `int(Integer)`, `nat(Fraction)`, `|Fraction|`, `sign`),
+NOT over an `Env` — so the generated spec never mentions the internal capture map. An
+absent optional component is passed as `""`, and each reader maps `""` to the doc's
+"0 if omitted" (`natOf "" = 0`, `signOf "" = 1`). -/
+def natOf  (s : String) : Int := (readNat s : Int)
+def intOf  (s : String) : Int := if s == "" then 0 else readInt s
+def lenOf  (s : String) : Int := (s.length : Int)
+def signOf (s : String) : Int := if s.startsWith "-" then -1 else 1
+
 /-- Denotation of a value expression against a capture environment — this IS the
     translation to a Lean computation, defined via the readable field readers above. -/
 def ValExpr.eval (env : Env) : ValExpr → Int
@@ -174,13 +186,18 @@ partial def elabValExpr (e : TSyntax `valExpr) : MacroM (TSyntax `term) :=
 /-- `val% <formula>` : a `ValExpr` value from math-style syntax. -/
 macro "val% " e:valExpr : term => elabValExpr e
 
-/-- Translate a `valExpr` into a READABLE `Int` term over an environment variable `env`,
-    using the named field readers (`env.intVal "X"`, `env.natVal "X"`, `env.lenVal`,
-    `env.signVal`). This is the surface/pretty counterpart of the `ValExpr` AST — the
-    generated `<Name>.value` is written this way (reads like the doc), while
-    `<Name>.valueExpr`/`eval` remains the analyzable engine. `valueSub` substitutes a
-    readable term for a `value` reference (used in constraints). -/
-partial def elabValReadableWith (env : TSyntax `term) (valueSub : Option (TSyntax `term)) :
+/-- De-capitalize a capture name into its surface parameter binder (`Integer` →
+    `integer`), so the readable value/constraints refer to components by lowercase name. -/
+def surfaceBinder (capture : String) : String :=
+  match capture.toList with | [] => capture | c :: cs => String.ofList (c.toLower :: cs)
+
+/-- Translate a `valExpr` into a READABLE `Int` term over the captured component STRINGS
+    (via `natOf`/`intOf`/`lenOf`/`signOf` applied to lowercase-named binders), NOT over an
+    `Env`. This is the surface/pretty counterpart of the `ValExpr` AST — the generated
+    `<Name>.value` takes the components as string parameters and reads like the doc's
+    `int(Integer)·10⁴ + …`. `valueSub` substitutes a readable term for a `value`
+    reference (used in constraints). -/
+partial def elabValReadableWith (valueSub : Option (TSyntax `term)) :
     TSyntax `valExpr → MacroM (TSyntax `term)
   | `(valExpr| $n:num)        => `(($n : Int))
   | `(valExpr| Int64.MAX)     => `((9223372036854775807 : Int))
@@ -189,15 +206,29 @@ partial def elabValReadableWith (env : TSyntax `term) (valueSub : Option (TSynta
       match valueSub with
       | some t => pure t
       | none   => Macro.throwUnsupported
-  | `(valExpr| nat $i:ident)  => `(($env).natVal $(quote i.getId.toString))
-  | `(valExpr| int $i:ident)  => `(($env).intVal $(quote i.getId.toString))
-  | `(valExpr| len $i:ident)  => `(($env).lenVal $(quote i.getId.toString))
-  | `(valExpr| sign $i:ident) => `(($env).signVal $(quote i.getId.toString))
-  | `(valExpr| ( $e:valExpr )) => do `(($(← elabValReadableWith env valueSub e)))
-  | `(valExpr| $a:valExpr + $b:valExpr) => do `($(← elabValReadableWith env valueSub a) + $(← elabValReadableWith env valueSub b))
-  | `(valExpr| $a:valExpr - $b:valExpr) => do `($(← elabValReadableWith env valueSub a) - $(← elabValReadableWith env valueSub b))
-  | `(valExpr| $a:valExpr * $b:valExpr) => do `($(← elabValReadableWith env valueSub a) * $(← elabValReadableWith env valueSub b))
-  | `(valExpr| $a:valExpr ^ $b:valExpr) => do `($(← elabValReadableWith env valueSub a) ^ ($(← elabValReadableWith env valueSub b)).toNat)
+  | `(valExpr| nat $i:ident)  => let b := mkIdent (Name.mkSimple (surfaceBinder i.getId.toString)); `(natOf $b)
+  | `(valExpr| int $i:ident)  => let b := mkIdent (Name.mkSimple (surfaceBinder i.getId.toString)); `(intOf $b)
+  | `(valExpr| len $i:ident)  => let b := mkIdent (Name.mkSimple (surfaceBinder i.getId.toString)); `(lenOf $b)
+  | `(valExpr| sign $i:ident) => let b := mkIdent (Name.mkSimple (surfaceBinder i.getId.toString)); `(signOf $b)
+  | `(valExpr| ( $e:valExpr )) => do `(($(← elabValReadableWith valueSub e)))
+  | `(valExpr| $a:valExpr + $b:valExpr) => do `($(← elabValReadableWith valueSub a) + $(← elabValReadableWith valueSub b))
+  | `(valExpr| $a:valExpr - $b:valExpr) => do `($(← elabValReadableWith valueSub a) - $(← elabValReadableWith valueSub b))
+  | `(valExpr| $a:valExpr * $b:valExpr) => do `($(← elabValReadableWith valueSub a) * $(← elabValReadableWith valueSub b))
+  | `(valExpr| $a:valExpr ^ $b:valExpr) => do `($(← elabValReadableWith valueSub a) ^ ($(← elabValReadableWith valueSub b)).toNat)
   | _ => Macro.throwUnsupported
+
+/-- The distinct capture names referenced (as `nat`/`int`/`len`/`sign`) in a `valExpr`,
+    in first-appearance order — the surface value function's string parameters. -/
+partial def valExprCaptures : TSyntax `valExpr → List String
+  | `(valExpr| nat $i:ident)  => [i.getId.toString]
+  | `(valExpr| int $i:ident)  => [i.getId.toString]
+  | `(valExpr| len $i:ident)  => [i.getId.toString]
+  | `(valExpr| sign $i:ident) => [i.getId.toString]
+  | `(valExpr| ( $e:valExpr )) => valExprCaptures e
+  | `(valExpr| $a:valExpr + $b:valExpr) => (valExprCaptures a ++ valExprCaptures b).eraseDups
+  | `(valExpr| $a:valExpr - $b:valExpr) => (valExprCaptures a ++ valExprCaptures b).eraseDups
+  | `(valExpr| $a:valExpr * $b:valExpr) => (valExprCaptures a ++ valExprCaptures b).eraseDups
+  | `(valExpr| $a:valExpr ^ $b:valExpr) => (valExprCaptures a ++ valExprCaptures b).eraseDups
+  | _ => []
 
 end FormatSpec

@@ -33,17 +33,18 @@ def Decimal.valueExpr : ValExpr :=
 def Decimal.valueFn : Env → Int :=
   (Decimal.valueExpr).eval
 
-def Decimal.value (env : Env) : Int :=
-  (env).intVal "Integer" * (10 : Int) ^ ((4 : Int)).toNat +
-    (env).signVal "Integer" * (env).natVal "Fraction" * (10 : Int) ^ (((4 : Int) - (env).lenVal "Fraction")).toNat
+def Decimal.value (integer : String) (fraction : String) : Int :=
+  intOf integer * (10 : Int) ^ ((4 : Int)).toNat +
+    signOf integer * natOf fraction * (10 : Int) ^ (((4 : Int) - lenOf fraction)).toNat
 
 def Decimal.constraints : List ConstraintEntry :=
   [ConstraintEntry.dsl
       (Constraint.and (Constraint.le (ValExpr.lit (-9223372036854775808)) Decimal.valueExpr)
         (Constraint.le Decimal.valueExpr (ValExpr.lit 9223372036854775807)))]
 
-def Decimal.Constraints (env : Env) : Prop :=
-  (-9223372036854775808 : Int) ≤ Decimal.value env ∧ Decimal.value env ≤ (9223372036854775807 : Int)
+def Decimal.Constraints (integer : String) (fraction : String) : Prop :=
+  (-9223372036854775808 : Int) ≤ Decimal.value integer fraction ∧
+    Decimal.value integer fraction ≤ (9223372036854775807 : Int)
 
 abbrev Decimal.isWf (s : String) : Prop :=
   FormatSpec.isWf Decimal.grammar Decimal.constraints s
