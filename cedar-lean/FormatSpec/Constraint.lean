@@ -229,6 +229,33 @@ def elabEntryWith (valueSub : Option (TSyntax `term)) :
 def elabEntry (c : TSyntax `constraintExpr) : MacroM (TSyntax `term) :=
   elabEntryWith none c
 
+/-- Translate a `constraintExpr` into a READABLE `Prop` term over environment `env`,
+    using the readable value readers (`env.intVal "X" ≤ 255`, etc.) — the surface/pretty
+    counterpart of the `Constraint` AST, just as `<Name>.value` is for `ValExpr`. Emitted
+    as the generated `<Name>.SatisfiesConstraints`. `valueSub` substitutes a readable term
+    for a `value` reference. -/
+def elabConstraintReadable (env : TSyntax `term) (valueSub : Option (TSyntax `term)) :
+    TSyntax `constraintExpr → MacroM (TSyntax `term)
+  | `(constraintExpr| noLeadingZero $i:ident) =>
+      `(match ($env) $(quote i.getId.toString) with
+        | some s => s.startsWith "0" → s = "0" | none => True)
+  | `(constraintExpr| $i:ident = $l:str) =>
+      `(match ($env) $(quote i.getId.toString) with | some s => s = $l | none => True)
+  | `(constraintExpr| $a:valExpr ≤ $b:valExpr) => do
+      `($(← elabValReadableWith env valueSub a) ≤ $(← elabValReadableWith env valueSub b))
+  | `(constraintExpr| $a:valExpr < $b:valExpr) => do
+      `($(← elabValReadableWith env valueSub a) < $(← elabValReadableWith env valueSub b))
+  | `(constraintExpr| $a:valExpr == $b:valExpr) => do
+      `($(← elabValReadableWith env valueSub a) = $(← elabValReadableWith env valueSub b))
+  | `(constraintExpr| $e:valExpr ∈ [ $lo:valExpr , $hi:valExpr ]) => do
+      let et  ← elabValReadableWith env valueSub e
+      let lot ← elabValReadableWith env valueSub lo
+      let hit ← elabValReadableWith env valueSub hi
+      `($lot ≤ $et ∧ $et ≤ $hit)
+  | `(constraintExpr| opaqueWf $t:term)  => `(($t) ($env) = true)
+  | `(constraintExpr| opaqueVal $t:term) => `(($t) ($env) = true)
+  | _ => Macro.throwUnsupported
+
 /-- `cstr% <predicate>` : a `Constraint` value from the constraint-DSL. -/
 macro "cstr% " c:constraintExpr : term => elabConstraint c
 

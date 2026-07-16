@@ -254,10 +254,18 @@ def elabFormatSpec : CommandElab := fun stx => do
           emit (← `(def $vfnIdent : Env → Int := $t))
         else
           let ve : TSyntax `valExpr := ⟨inner⟩
+          -- engine: the analyzable AST + its eval
           let valTerm ← liftMacroM (elabValExpr ve)
           let veIdent := mkIdentFrom name (name.getId ++ `valueExpr)
           emit (← `(def $veIdent : ValExpr := $valTerm))
           emit (← `(def $vfnIdent : Env → Int := ($veIdent).eval))
+          -- surface: a READABLE `<Name>.value` (env → Int) written with the named field
+          -- readers (`env.intVal "X" * …`), the pretty counterpart of the AST — reads
+          -- like the doc's `value(X) = …`.
+          let envVar ← `(env)
+          let readable ← liftMacroM (elabValReadableWith envVar none ve)
+          let valIdent := mkIdentFrom name (name.getId ++ `value)
+          emit (← `(def $valIdent (env : Env) : Int := $readable))
           -- Refer to the value expression by its generated name in constraints.
           valueSub := some (← `($veIdent))
           veIdent? := some veIdent
@@ -273,6 +281,19 @@ def elabFormatSpec : CommandElab := fun stx => do
         let cTerms ← exprs.mapM (fun e => liftMacroM (elabEntryWith valueSub e))
         let csep : Syntax.TSepArray `term "," := .ofElems cTerms
         emit (← `(def $cIdent : List ConstraintEntry := [$csep,*]))
+        -- surface: a READABLE `<Name>.Constraints` Prop (env → Prop), conjoining each
+        -- constraint rendered with the named readers — pretty counterpart of the AST list.
+        -- A `value` reference renders as the readable `<Name>.value env`.
+        let envVar ← `(env)
+        let valSubR : Option (TSyntax `term) ← match veIdent? with
+          | some _ => let vId := mkIdentFrom name (name.getId ++ `value); pure (some (← `($vId $envVar)))
+          | none   => pure none
+        let rTerms ← exprs.mapM (fun e => liftMacroM (elabConstraintReadable envVar valSubR e))
+        let body ← match rTerms.toList with
+          | []      => `(True)
+          | x :: xs => xs.foldlM (fun acc p => `($acc ∧ $p)) x
+        let cRIdent := mkIdentFrom name (name.getId ++ `Constraints)
+        emit (← `(def $cRIdent (env : Env) : Prop := $body))
       | none =>
         emit (← `(def $cIdent : List ConstraintEntry := []))
       -- Bundle the spec: `isWf` / `satisfiesConstraints` / `isAccepted` (design §16.1),

@@ -82,10 +82,19 @@ def Duration.valueExpr : ValExpr :=
 def Duration.valueFn : Env → Int :=
   (Duration.valueExpr).eval
 
+def Duration.value (env : Env) : Int :=
+  (env).natVal "DDays" * (86400000 : Int) + (env).natVal "DHours" * (3600000 : Int) +
+        (env).natVal "DMinutes" * (60000 : Int) +
+      (env).natVal "DSeconds" * (1000 : Int) +
+    (env).natVal "DMillis"
+
 def Duration.constraints : List ConstraintEntry :=
   [ConstraintEntry.dsl
       (Constraint.and (Constraint.le (ValExpr.lit (-9223372036854775808)) Duration.valueExpr)
         (Constraint.le Duration.valueExpr (ValExpr.lit 9223372036854775807)))]
+
+def Duration.Constraints (env : Env) : Prop :=
+  (-9223372036854775808 : Int) ≤ Duration.value env ∧ Duration.value env ≤ (9223372036854775807 : Int)
 
 abbrev Duration.isWf (s : String) : Prop :=
   FormatSpec.isWf Duration.grammar Duration.constraints s

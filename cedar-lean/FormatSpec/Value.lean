@@ -89,15 +89,27 @@ def readInt (s : String) : Int :=
     In the full pipeline this comes from `decode`; here it is supplied directly. -/
 abbrev Env := String → Option String
 
+/-! ## Readable field readers
+
+These are the per-field-reference cases of `ValExpr.eval`, named to read like the doc's
+`int(X)`, `nat(X)`, `|X|`, `sign`. The generated *surface* value function (`<Name>.value`)
+is written in terms of these — the readable counterpart of the `ValExpr` AST engine, just
+as the inlined `IsWf` is the readable counterpart of the interpreter. `eval` is defined
+via them, so the surface value is DEFINITIONALLY `valueExpr.eval` (no equivalence gap).
+Absent field ⟹ `0` (`nat`/`int`/`len`) or `+1` (`sign`), matching the doc's "0 if omitted". -/
+def Env.natVal  (env : Env) (f : String) : Int := match env f with | some s => (readNat s : Int) | none => 0
+def Env.intVal  (env : Env) (f : String) : Int := match env f with | some s => readInt s          | none => 0
+def Env.lenVal  (env : Env) (f : String) : Int := match env f with | some s => (s.length : Int)   | none => 0
+def Env.signVal (env : Env) (f : String) : Int := match env f with | some s => if s.startsWith "-" then -1 else 1 | none => 1
+
 /-- Denotation of a value expression against a capture environment — this IS the
-    translation to a Lean computation. Absent field references read as `0`
-    (`nat`/`int`/`len`) or `+1` (`sign`), matching the doc's "0 if omitted". -/
+    translation to a Lean computation, defined via the readable field readers above. -/
 def ValExpr.eval (env : Env) : ValExpr → Int
   | .lit n    => n
-  | .nat f    => match env f with | some s => (readNat s : Int) | none => 0
-  | .int f    => match env f with | some s => readInt s        | none => 0
-  | .len f    => match env f with | some s => (s.length : Int) | none => 0
-  | .signOf f => match env f with | some s => if s.startsWith "-" then -1 else 1 | none => 1
+  | .nat f    => env.natVal f
+  | .int f    => env.intVal f
+  | .len f    => env.lenVal f
+  | .signOf f => env.signVal f
   | .add a b  => a.eval env + b.eval env
   | .sub a b  => a.eval env - b.eval env
   | .mul a b  => a.eval env * b.eval env
@@ -161,5 +173,31 @@ partial def elabValExpr (e : TSyntax `valExpr) : MacroM (TSyntax `term) :=
 
 /-- `val% <formula>` : a `ValExpr` value from math-style syntax. -/
 macro "val% " e:valExpr : term => elabValExpr e
+
+/-- Translate a `valExpr` into a READABLE `Int` term over an environment variable `env`,
+    using the named field readers (`env.intVal "X"`, `env.natVal "X"`, `env.lenVal`,
+    `env.signVal`). This is the surface/pretty counterpart of the `ValExpr` AST — the
+    generated `<Name>.value` is written this way (reads like the doc), while
+    `<Name>.valueExpr`/`eval` remains the analyzable engine. `valueSub` substitutes a
+    readable term for a `value` reference (used in constraints). -/
+partial def elabValReadableWith (env : TSyntax `term) (valueSub : Option (TSyntax `term)) :
+    TSyntax `valExpr → MacroM (TSyntax `term)
+  | `(valExpr| $n:num)        => `(($n : Int))
+  | `(valExpr| Int64.MAX)     => `((9223372036854775807 : Int))
+  | `(valExpr| Int64.MIN)     => `((-9223372036854775808 : Int))
+  | `(valExpr| value)         =>
+      match valueSub with
+      | some t => pure t
+      | none   => Macro.throwUnsupported
+  | `(valExpr| nat $i:ident)  => `(($env).natVal $(quote i.getId.toString))
+  | `(valExpr| int $i:ident)  => `(($env).intVal $(quote i.getId.toString))
+  | `(valExpr| len $i:ident)  => `(($env).lenVal $(quote i.getId.toString))
+  | `(valExpr| sign $i:ident) => `(($env).signVal $(quote i.getId.toString))
+  | `(valExpr| ( $e:valExpr )) => do `(($(← elabValReadableWith env valueSub e)))
+  | `(valExpr| $a:valExpr + $b:valExpr) => do `($(← elabValReadableWith env valueSub a) + $(← elabValReadableWith env valueSub b))
+  | `(valExpr| $a:valExpr - $b:valExpr) => do `($(← elabValReadableWith env valueSub a) - $(← elabValReadableWith env valueSub b))
+  | `(valExpr| $a:valExpr * $b:valExpr) => do `($(← elabValReadableWith env valueSub a) * $(← elabValReadableWith env valueSub b))
+  | `(valExpr| $a:valExpr ^ $b:valExpr) => do `($(← elabValReadableWith env valueSub a) ^ ($(← elabValReadableWith env valueSub b)).toNat)
+  | _ => Macro.throwUnsupported
 
 end FormatSpec
