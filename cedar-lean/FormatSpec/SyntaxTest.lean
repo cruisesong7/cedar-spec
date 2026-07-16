@@ -51,19 +51,21 @@ format_spec IPv4 where
     nat Group ≤ 255
 
 -- The DSL output matches the hand-written grammar values.
+-- The grammar-equality facts are proved (`decide` works: `Grammar` has `DecidableEq`
+-- and these are closed grammar values). The rest are `#guard` build-time checks.
 example : Decimal.grammar = Examples.decimal := by decide
 example : IPv4.grammar = Examples.ipv4 := by decide
 
 -- And the DSL-produced grammars are in-class (references resolve, acyclic).
-example : Decimal.grammar.ok = true := by native_decide
-example : IPv4.grammar.ok = true := by native_decide
+#guard Decimal.grammar.ok = true
+#guard IPv4.grammar.ok = true
 
 -- The optional sections generate their auxiliary defs.
-example : IPv4.constraints.length = 2 := by native_decide
+#guard IPv4.constraints.length = 2
 -- `constraints` are `ConstraintEntry` values, auto-classifiable:
 --   `noLeadingZero Group` is string-only (→ IsWf), `nat Group ≤ 255` is value (→ SatisfiesConstraints).
-example : (IPv4.constraints.map ConstraintEntry.isValueDependent) = [false, true] := by native_decide
+#guard (IPv4.constraints.map ConstraintEntry.isValueDependent) = [false, true]
 -- `value` generates the deep `ValExpr` AST + a uniform value fn.
-example : IPv4.valueFn (fun _ => some "0") = 0 := by native_decide
+#guard IPv4.valueFn (fun _ => some "0") = 0
 
 end FormatSpec.SyntaxTest

@@ -106,4 +106,21 @@ def IsWf (g : Grammar) (s : String) : Prop :=
   | none   => False
   | some p => matchesProd g g.prods.length p s
 
+/-- Per-production well-formedness: `s` matches production named `name` in `g`. `False`
+    if the name is undefined. This is the *named handle* the command emits one of per
+    production (as `<Name>.<Production>.isWf`), so contract-theorem proofs can decompose
+    along productions (mirroring the hand specs' `DateComponents.syntaxWf`,
+    `IsWfV4`, …). Fuel = #productions, the same DAG-depth backstop as `IsWf`; since the
+    reference graph is acyclic this never runs out on well-formed grammars. -/
+def IsWfProd (g : Grammar) (name : String) (s : String) : Prop :=
+  match g.prod? name with
+  | none   => False
+  | some p => matchesProd g g.prods.length p s
+
+/-- The top-level `IsWf` is exactly the start production's `IsWfProd`. -/
+theorem isWf_eq_isWfProd_start (g : Grammar) (s : String) :
+    IsWf g s = IsWfProd g g.start s := by
+  unfold IsWf IsWfProd Grammar.startProd?
+  rfl
+
 end FormatSpec

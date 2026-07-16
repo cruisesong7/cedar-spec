@@ -73,13 +73,13 @@ def cyclic : Grammar where
   ]
 
 -- The doc-transcribed grammars are in-class: references resolve and graph is acyclic.
-example : decimal.ok = true := by native_decide
-example : ipv4.ok = true := by native_decide
-example : decimal.isAcyclic = true := by native_decide
-example : ipv4.refsResolve = true := by native_decide
-
+-- (`#guard`: build-time computational checks, no theorem, no axiom.)
+#guard decimal.ok = true
+#guard ipv4.ok = true
+#guard decimal.isAcyclic = true
+#guard ipv4.refsResolve = true
 -- The cyclic grammar is correctly rejected by the acyclicity check.
-example : cyclic.isAcyclic = false := by native_decide
-example : cyclic.ok = false := by native_decide
+#guard cyclic.isAcyclic = false
+#guard cyclic.ok = false
 
 end FormatSpec.Examples

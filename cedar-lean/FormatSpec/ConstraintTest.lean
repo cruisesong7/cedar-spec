@@ -32,25 +32,25 @@ def env (pairs : List (String × String)) : Env := fun k =>
 
 /-! ## Classification: value-dependence routes to the right layer -/
 
+-- Classification is pure structural recursion (no String externs), so `decide` PROVES
+-- it — these are real theorems, axiom-free.
 -- `nat NumV4 ≤ 255` — the IPv4 octet bound — is VALUE-dependent (→ SatisfiesConstraints).
-example : (cstr% nat NumV4 ≤ 255).isValueDependent = true := by native_decide
-
+example : (cstr% nat NumV4 ≤ 255).isValueDependent = true := by decide
 -- `noLeadingZero NumV4` is STRING-only (→ IsWf).
-example : (cstr% noLeadingZero NumV4).isValueDependent = false := by native_decide
-
+example : (cstr% noLeadingZero NumV4).isValueDependent = false := by decide
 -- The Int64 range bound (Decimal): value-dependent.
-example : (cstr% int Integer ≤ 9223372036854775807).isValueDependent = true := by native_decide
+example : (cstr% int Integer ≤ 9223372036854775807).isValueDependent = true := by decide
 
-/-! ## Evaluation -/
+/-! ## Evaluation (`#guard`: build-time checks — `.eval` touches String externs, so
+     kernel `decide` can't reduce it and we avoid `native_decide`'s axiom). -/
 
 -- `nat NumV4 ≤ 255` holds for "200", fails for "300".
-example : (cstr% nat NumV4 ≤ 255).eval (env [("NumV4", "200")]) := by native_decide
-example : ¬ (cstr% nat NumV4 ≤ 255).eval (env [("NumV4", "300")]) := by native_decide
-
+#guard decide ((cstr% nat NumV4 ≤ 255).eval (env [("NumV4", "200")]))
+#guard ! decide ((cstr% nat NumV4 ≤ 255).eval (env [("NumV4", "300")]))
 -- `noLeadingZero` : "0" ok, "007" bad, "42" ok.
-example : (cstr% noLeadingZero X).eval (env [("X", "0")]) := by native_decide
-example : ¬ (cstr% noLeadingZero X).eval (env [("X", "007")]) := by native_decide
-example : (cstr% noLeadingZero X).eval (env [("X", "42")]) := by native_decide
+#guard decide ((cstr% noLeadingZero X).eval (env [("X", "0")]))
+#guard ! decide ((cstr% noLeadingZero X).eval (env [("X", "007")]))
+#guard decide ((cstr% noLeadingZero X).eval (env [("X", "42")]))
 
 /-! ## wfPart / valPart split a conjunction into the two layers -/
 
@@ -58,13 +58,13 @@ example : (cstr% noLeadingZero X).eval (env [("X", "42")]) := by native_decide
 def mixed : Constraint := .and (cstr% noLeadingZero X) (cstr% nat X ≤ 255)
 
 -- wfPart keeps only the string side; on "007" it fails (leading zero)...
-example : ¬ mixed.wfPart (env [("X", "007")]) := by native_decide
+#guard ! decide (mixed.wfPart (env [("X", "007")]))
 -- ...even though the value side would pass (7 ≤ 255): valPart is about the bound only.
-example : mixed.valPart (env [("X", "007")]) := by native_decide
+#guard decide (mixed.valPart (env [("X", "007")]))
 -- valPart catches the bound violation on "300" (value side)...
-example : ¬ mixed.valPart (env [("X", "300")]) := by native_decide
+#guard ! decide (mixed.valPart (env [("X", "300")]))
 -- ...while wfPart passes on "300" (no leading zero).
-example : mixed.wfPart (env [("X", "300")]) := by native_decide
+#guard decide (mixed.wfPart (env [("X", "300")]))
 
 /-! ## Escape hatch: `ConstraintEntry.opaque` for out-of-DSL constraints -/
 
@@ -74,14 +74,14 @@ def evenLen : ConstraintEntry :=
   .opaque true (fun e => match e "Z" with | some s => s.length % 2 == 0 | none => true)
 
 -- Classifies per its declared flag (value → SatisfiesConstraints)...
-example : evenLen.isValueDependent = true := by native_decide
+example : evenLen.isValueDependent = true := by decide
 -- ...folds into valPart, not wfPart...
-example : evenLen.valPart (env [("Z", "abcd")]) := by native_decide
-example : ¬ evenLen.valPart (env [("Z", "abc")]) := by native_decide
-example : evenLen.wfPart (env [("Z", "abc")]) := by native_decide  -- vacuous on the wf side
+#guard decide (evenLen.valPart (env [("Z", "abcd")]))
+#guard ! decide (evenLen.valPart (env [("Z", "abc")]))
+#guard decide (evenLen.wfPart (env [("Z", "abc")]))  -- vacuous on the wf side
 
 -- A string-classified escape (`opaqueWf`) folds into wfPart instead.
 def opaqueString : ConstraintEntry := .opaque false (fun _ => true)
-example : opaqueString.isValueDependent = false := by native_decide
+example : opaqueString.isValueDependent = false := by decide
 
 end FormatSpec.ConstraintTest

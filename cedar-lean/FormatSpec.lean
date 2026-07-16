@@ -20,6 +20,8 @@ import FormatSpec.Denote
 import FormatSpec.Value
 import FormatSpec.Constraint
 import FormatSpec.Decode
+import FormatSpec.Decidable
+import FormatSpec.Assemble
 import FormatSpec.Syntax
 import FormatSpec.Examples
 import FormatSpec.SyntaxTest
@@ -49,6 +51,10 @@ Module layout:
 * `FormatSpec.Constraint` — the constraint-DSL: deep `Constraint` AST, auto-classified
                             into `IsWf` (string) / `SatisfiesConstraints` (value) parts
 * `FormatSpec.Decode`     — executable capture extractor `decode` + `computeValue`
+* `FormatSpec.Decidable`  — `DecidablePred (IsWf g)` via a total boolean recognizer
+                            (one remaining `sorry`: the recognizer↔denotation lemma)
+* `FormatSpec.Assemble`   — bundles ingredients into `isWf`/`satisfiesConstraints`/
+                            `isAccepted` (the generated command's top-level predicates)
 * `FormatSpec.Syntax`     — the `format_spec` embedded DSL (surface → core `Grammar`)
 * `FormatSpec.Examples`   — hand-written `Grammar` values (Decimal, IPv4) for validation
 * `FormatSpec.DecimalDemo`— end-to-end demo: Decimal grammar → runnable spec

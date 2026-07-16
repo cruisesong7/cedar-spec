@@ -60,11 +60,28 @@ inductive ValExpr where
   | neg    (a : ValExpr)
   deriving Repr, Inhabited, DecidableEq
 
-/-- Reader: unsigned decimal value of a digit string (`"345" ↦ 345`). -/
+/-- Reader: unsigned decimal value of a digit string (`"345" ↦ 345`).
+
+    PRECONDITION: `s` is a run of ASCII digits `'0'..'9'` — guaranteed at every real call
+    site by the grammar's `TokClass.digit`/`IsWf` (via `decode`). On a non-digit char the
+    `Nat` truncated subtraction yields an unspecified (but total, non-crashing) value;
+    *well-formedness*, not this reader, rejects non-digit inputs. The fold is left
+    unguarded deliberately: the `else` branch would be dead code on valid input and would
+    only add an `if` to discharge in the affinity/roundtrip proofs (the happy path).
+
+    Why a Cedar-local reader, NOT stdlib `String.toNat?`/`toNat!`: the reader is part of
+    the *spec's meaning*, so it must be pinned by us — (1) stdlib's contract can drift
+    across Lean versions (cf. this repo's `toNat?'` and the datetime workaround), and
+    (2) stdlib is more permissive than our grammar (accepts leading zeros, possibly
+    Unicode digits), which would let the value function diverge from `IsWf`. Owning the
+    reader keeps its digit-rule identical to `TokClass.digit` and version-stable. -/
 def readNat (s : String) : Nat :=
   s.foldl (fun acc c => acc * 10 + (c.toNat - '0'.toNat)) 0
 
-/-- Reader: signed decimal value (leading `-` ⟹ negative; `"-12" ↦ -12`). -/
+/-- Reader: signed decimal value (leading `-` ⟹ negative; `"-12" ↦ -12`).
+    PRECONDITION: `s` is optionally a leading `-` then a digit run, per the grammar's
+    `['-'] Digit⁺`. Note `+` is not accepted (the grammar has no `+` sign), matching the
+    doc — unlike stdlib `String.toInt?`. See `readNat` for why we own this reader. -/
 def readInt (s : String) : Int :=
   if s.startsWith "-" then -(readNat (s.drop 1).toString : Int) else (readNat s : Int)
 

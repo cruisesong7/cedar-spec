@@ -19,6 +19,7 @@ import FormatSpec.Grammar
 import FormatSpec.Classify
 import FormatSpec.Value
 import FormatSpec.Constraint
+import FormatSpec.Assemble
 
 /-!
 # `format_spec` embedded DSL
@@ -164,6 +165,15 @@ def elabFormatSpec : CommandElab := fun stx => do
       let grammarIdent := mkIdentFrom name (name.getId ++ `grammar)
       elabCommand (← `(def $grammarIdent : FormatSpec.Grammar :=
                     FormatSpec.Grammar.mk $(Syntax.mkStrLit name.getId.toString) [$sep,*]))
+      -- Per-production well-formedness: emit `<Name>.<Prod>.isWf` for each production
+      -- (named handles for decomposing contract-theorem proofs; mirrors the hand specs'
+      -- `DateComponents.syntaxWf` / `IsWfV4`). Each is `IsWfProd grammar "<Prod>"`.
+      for prod in prods do
+        if let `(fmtProd| $lhs:ident ::= $_:fmtItem*) := prod then
+          let pName := lhs.getId.toString
+          let pIdent := mkIdentFrom name (name.getId ++ `isWf ++ lhs.getId)
+          elabCommand (← `(abbrev $pIdent (s : String) : Prop :=
+                        FormatSpec.IsWfProd $grammarIdent $(Syntax.mkStrLit pName) s))
       -- Value (optional), processed BEFORE constraints so a constraint may refer to
       -- `value`. Two tiers: `value opaque := <term>` binds the raw `Env → Int`;
       -- `value <formula>` elaborates the value-DSL to a `ValExpr` (bound as `valueExpr`)
@@ -187,12 +197,26 @@ def elabFormatSpec : CommandElab := fun stx => do
       -- Constraints (optional): constraint-DSL predicates, one per line, with `value`
       -- substituted by the value expression. The `fmtConstraints` node is
       -- `"constraints" (colGt constraintExpr)+`; arg 1 is the plain array of exprs.
-      if let some csStx := cs then
+      -- Always bind `<Name>.constraints` (empty list if the section is absent) so the
+      -- bundled predicates below can reference it uniformly.
+      let cIdent := mkIdentFrom name (name.getId ++ `constraints)
+      match cs with
+      | some csStx =>
         let exprs : Array (TSyntax `constraintExpr) := csStx.raw[1].getArgs.map (⟨·⟩)
         let cTerms ← exprs.mapM (fun e => liftMacroM (elabEntryWith valueSub e))
         let csep : Syntax.TSepArray `term "," := .ofElems cTerms
-        let cIdent := mkIdentFrom name (name.getId ++ `constraints)
         elabCommand (← `(def $cIdent : List FormatSpec.ConstraintEntry := [$csep,*]))
+      | none =>
+        elabCommand (← `(def $cIdent : List FormatSpec.ConstraintEntry := []))
+      -- Bundle the spec: `isWf` / `satisfiesConstraints` / `isAccepted` (design §16.1),
+      -- referring to the generated grammar + constraints.
+      let wfIdent  := mkIdentFrom name (name.getId ++ `isWf)
+      let scIdent  := mkIdentFrom name (name.getId ++ `satisfiesConstraints)
+      let accIdent := mkIdentFrom name (name.getId ++ `isAccepted)
+      -- `abbrev` (reducible) so the `Decidable` instances on `isWf`/… fire through.
+      elabCommand (← `(abbrev $wfIdent  (s : String) : Prop := FormatSpec.isWf $grammarIdent $cIdent s))
+      elabCommand (← `(abbrev $scIdent  (s : String) : Prop := FormatSpec.satisfiesConstraints $grammarIdent $cIdent s))
+      elabCommand (← `(abbrev $accIdent (s : String) : Prop := FormatSpec.isAccepted $grammarIdent $cIdent s))
   | _ => throwUnsupportedSyntax
 
 end FormatSpec

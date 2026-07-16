@@ -40,17 +40,14 @@ Doc: `value(Decimal) = int(Integer) × 10⁴ + sign × nat(Fraction) × 10^(4 �
 def decimalValue : ValExpr :=
   val% int Integer * 10 ^ 4 + sign Integer * nat Fraction * 10 ^ (4 - len Fraction)
 
+-- Computational checks via `#guard`: verified at build time by compiled evaluation, but
+-- (unlike `native_decide`) they produce NO theorem and add NO axiom to the trust base.
 -- `1.2345`  →  Integer="1", Fraction="2345"  →  1·10⁴ + 2345·10⁰ = 12345
-example : decimalValue.eval (env [("Integer", "1"), ("Fraction", "2345")]) = 12345 := by
-  native_decide
-
+#guard decimalValue.eval (env [("Integer", "1"), ("Fraction", "2345")]) == 12345
 -- `1.5`  →  Integer="1", Fraction="5"  →  1·10⁴ + 5·10³ = 15000
-example : decimalValue.eval (env [("Integer", "1"), ("Fraction", "5")]) = 15000 := by
-  native_decide
-
+#guard decimalValue.eval (env [("Integer", "1"), ("Fraction", "5")]) == 15000
 -- `-1.5` →  Integer="-1", Fraction="5" →  -1·10⁴ + (-1)·5·10³ = -15000
-example : decimalValue.eval (env [("Integer", "-1"), ("Fraction", "5")]) = -15000 := by
-  native_decide
+#guard decimalValue.eval (env [("Integer", "-1"), ("Fraction", "5")]) == -15000
 
 /-!
 ## Duration
@@ -64,14 +61,10 @@ def durationValue : ValExpr :=
        + nat Seconds * 1000 + nat Millis
 
 -- `1d2h30m`  →  1·86400000 + 2·3600000 + 30·60000 = 95400000
-example : durationValue.eval (env [("Days", "1"), ("Hours", "2"), ("Minutes", "30")]) = 95400000 := by
-  native_decide
-
+#guard durationValue.eval (env [("Days", "1"), ("Hours", "2"), ("Minutes", "30")]) == 95400000
 -- omitted components read as 0: `500ms` → 500
-example : durationValue.eval (env [("Millis", "500")]) = 500 := by
-  native_decide
-
+#guard durationValue.eval (env [("Millis", "500")]) == 500
 -- Operator precedence: `^` binds tighter than `*`, `*` tighter than `+`.
-example : (val% 2 + 3 * 4 ^ 2).eval (env []) = 50 := by native_decide
+#guard (val% 2 + 3 * 4 ^ 2).eval (env []) == 50
 
 end FormatSpec.ValueTest

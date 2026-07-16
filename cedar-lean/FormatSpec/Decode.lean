@@ -49,50 +49,54 @@ private def termPrefixOk (tok : TokClass) (ls : LenSpec) (cs : List Char) (k : N
 
 mutual
 
-/-- All ways symbol `sym` matches a prefix of `cs`: each result is (captures, remaining). -/
-partial def matchSym (g : Grammar) : Sym → List Char → List (CaptureMap × List Char)
-  | .lit l, cs =>
+/-- All ways symbol `sym` matches a prefix of `cs`: each result is (captures, remaining).
+    `fuel` bounds ref-recursion (= #productions, the DAG depth), mirroring `Denote`; this
+    makes the function TOTAL and kernel-reducible (so `decide`, not `native_decide`). -/
+def matchSym (g : Grammar) : Nat → Sym → List Char → List (CaptureMap × List Char)
+  | _,      .lit l,        cs =>
       let ls := l.toList
       if ls.isPrefixOf cs then [([], cs.drop ls.length)] else []
-  | .term tok ls, cs =>
+  | _,      .term tok ls,  cs =>
       -- try every valid prefix length (backtracking over the token run)
       (List.range (cs.length + 1)).filterMap (fun k =>
         if termPrefixOk tok ls cs k then some ([], cs.drop k) else none)
-  | .ref name, cs =>
+  | 0,      .ref _,        _  => []        -- out of fuel (cannot happen in a DAG)
+  | fuel+1, .ref name,     cs =>
       match g.prod? name with
       | none   => []
       | some p =>
-          (matchProd g p cs).map (fun (m, rem) =>
+          (matchProd g fuel p cs).map (fun (m, rem) =>
             let consumed := String.ofList (cs.take (cs.length - rem.length))
             ((name, consumed) :: m, rem))
 
 /-- All ways a sequence matches a prefix of `cs`. -/
-partial def matchSeq (g : Grammar) : Seq → List Char → List (CaptureMap × List Char)
-  | [], cs => [([], cs)]
-  | item :: rest, cs =>
-      let present := (matchSym g item.sym cs).flatMap (fun (m1, r1) =>
-        (matchSeq g rest r1).map (fun (m2, r2) => (m1 ++ m2, r2)))
-      if item.optional then present ++ matchSeq g rest cs else present
+def matchSeq (g : Grammar) : Nat → Seq → List Char → List (CaptureMap × List Char)
+  | _,    [],           cs => [([], cs)]
+  | fuel, item :: rest, cs =>
+      let present := (matchSym g fuel item.sym cs).flatMap (fun (m1, r1) =>
+        (matchSeq g fuel rest r1).map (fun (m2, r2) => (m1 ++ m2, r2)))
+      if item.optional then present ++ matchSeq g fuel rest cs else present
 
 /-- All ways a production matches a prefix of `cs` (union over alternatives). -/
-partial def matchProd (g : Grammar) (p : Production) (cs : List Char) : List (CaptureMap × List Char) :=
-  p.alts.flatMap (fun alt => matchSeq g alt cs)
+def matchProd (g : Grammar) (fuel : Nat) (p : Production) (cs : List Char) :
+    List (CaptureMap × List Char) :=
+  p.alts.flatMap (fun alt => matchSeq g fuel alt cs)
 
 end
 
 /-- Decode a string into a capture assignment: a full-consumption match of the start
-    production. Returns the first such assignment, or `none` if the string is not
-    well-formed. -/
-partial def decode (g : Grammar) (s : String) : Option CaptureMap :=
+    production. Fuel = #productions (DAG-depth backstop). Returns the first such
+    assignment, or `none` if the string is not well-formed. -/
+def decode (g : Grammar) (s : String) : Option CaptureMap :=
   match g.startProd? with
   | none   => none
   | some p =>
-      let full := (matchProd g p s.toList).filter (fun (_, rem) => rem.isEmpty)
+      let full := (matchProd g g.prods.length p s.toList).filter (fun (_, rem) => rem.isEmpty)
       full.head?.map (·.1)
 
 /-- The value function: decode the string, then evaluate the value expression against
     the resulting capture environment. `none` when the string is not well-formed. -/
-partial def computeValue (g : Grammar) (ve : ValExpr) (s : String) : Option Int :=
+def computeValue (g : Grammar) (ve : ValExpr) (s : String) : Option Int :=
   (decode g s).map (fun m => ve.eval m.toEnv)
 
 end FormatSpec
