@@ -20,7 +20,6 @@ import FormatSpec.Denote
 import FormatSpec.Value
 import FormatSpec.Constraint
 import FormatSpec.Decode
-import FormatSpec.Decidable
 import FormatSpec.Assemble
 import FormatSpec.Roundtrip
 import FormatSpec.Reconcile
@@ -62,7 +61,8 @@ Module layout:
 * `FormatSpec.Constraint` — the constraint-DSL: deep `Constraint` AST, auto-classified
                             into `IsWf` (string) / `SatisfiesConstraints` (value) parts
 * `FormatSpec.Decode`     — executable capture extractor `decode` + `computeValue`
-* `FormatSpec.Decidable`  — `DecidablePred (IsWf g)` via a total boolean recognizer
+* `FormatSpec.Roundtrip`  — `decodeSome_iff_IsWf` (`decode` succeeds iff `IsWf`) + the
+                            `DecidablePred (IsWf g)` instance derived directly from it
 * `FormatSpec.Reconcile`  — reusable lemmas for the auto-emitted proof that the readable
                             surface `IsWf.<start>` equals the engine interpreter `IsWf g`
 * `FormatSpec.Assemble`   — bundles ingredients into `isWf`/`satisfiesConstraints`/

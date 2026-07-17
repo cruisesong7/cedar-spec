@@ -16,7 +16,7 @@
 
 import FormatSpec.Syntax
 import FormatSpec.Decode
-import FormatSpec.Decidable
+import FormatSpec.Roundtrip
 
 /-!
 # IPv6 example — `hexDigit`, and the fixed-arity BOUNDARY of the tool

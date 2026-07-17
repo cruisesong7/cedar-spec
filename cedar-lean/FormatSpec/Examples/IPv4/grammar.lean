@@ -16,7 +16,7 @@
 
 import FormatSpec.Syntax
 import FormatSpec.Decode
-import FormatSpec.Decidable
+import FormatSpec.Roundtrip
 
 /-!
 # IPv4 example — `noLeadingZero` + numeric bounds on reused octets

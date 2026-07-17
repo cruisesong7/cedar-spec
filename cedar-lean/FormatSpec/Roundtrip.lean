@@ -15,7 +15,6 @@
 -/
 
 import FormatSpec.Decode
-import FormatSpec.Decidable
 
 /-!
 # `decode` ↔ `IsWf` roundtrip
@@ -35,7 +34,8 @@ quantified away:
     (∃ m, (m, r₂) ∈ matchSeq  g q fuel seq cs) ↔ ∃ r₁, cs = r₁ ++ r₂ ∧ matchesSeq  g fuel seq (String.ofList r₁)
     (∃ m, (m, r₂) ∈ matchProd g q fuel p  cs) ↔ ∃ r₁, cs = r₁ ++ r₂ ∧ matchesProd g fuel p  (String.ofList r₁)
 
-The structure mirrors `FormatSpec.Decidable` (`sym_corr`/`seq_corr_of_sym`/`prod_corr_of_seq`):
+The structure is the standard mutual fuel induction (`sym`/`seq`/`prod`, each given the next
+level down):
 `matchSym_iter` is proved by induction on `fuel` (the `ref` case at `fuel+1` drops to
 `matchProd` at `fuel`); `matchSeq_iter` by induction on the sequence list; `matchProd_iter`
 over the alternatives. `decodeSome_iff_IsWf` then instantiates the prod bridge with `r₂ = []`.
@@ -306,6 +306,13 @@ theorem decodeSome_iff_IsWf (g : Grammar) (s : String) :
       rw [this, String.ofList_toList] at hd; exact hd
     · intro hd
       exact ⟨s.toList, by simp, by rw [String.ofList_toList]; exact hd⟩
+
+/-- `IsWf` is decidable — the executable, provably-correct validator, obtained DIRECTLY from
+    the total `decode` (`(decode g s).isSome` is a decidable `Bool` test) via the roundtrip.
+    This is the sole consumer of well-formedness decidability; because `decode` already exists
+    (it drives `computeValue`/`envOf`), no separate boolean recognizer walk is needed. -/
+instance (g : Grammar) : DecidablePred (IsWf g) := fun s =>
+  decidable_of_iff ((decode g s).isSome = true) (decodeSome_iff_IsWf g s)
 
 end FormatSpec
 
