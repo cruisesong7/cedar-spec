@@ -43,16 +43,25 @@ abbrev CaptureMap := List (String × String)
 /-- View a `CaptureMap` as the `Env` the value/constraint DSLs evaluate against. -/
 def CaptureMap.toEnv (m : CaptureMap) : Env := fun k => (m.find? (·.1 == k)).map (·.2)
 
-/-- Does a char run of length `k` satisfy the terminal `tok`/`ls` at the front of `cs`? -/
-private def termPrefixOk (tok : TokClass) (ls : LenSpec) (cs : List Char) (k : Nat) : Bool :=
-  ls.sat k && k ≤ cs.length && (cs.take k).all (fun c => decide (tok.mem c))
+/-- Does the length-`k` prefix of `cs` satisfy the terminal `tok`/`ls`? Routes through the
+    single `matchesTerm` predicate (shared with the recognizer/spec), so the token semantics
+    is defined once; the `k ≤ cs.length` guard keeps the prefix a genuine prefix. -/
+def termPrefixOk (tok : TokClass) (ls : LenSpec) (cs : List Char) (k : Nat) : Bool :=
+  k ≤ cs.length && decide (matchesTerm tok ls (String.ofList (cs.take k)))
 
 mutual
 
 /-- All ways symbol `sym` matches a prefix of `cs`: each result is (captures, remaining).
     `fuel` bounds ref-recursion (= #productions, the DAG depth), mirroring `Denote`; this
-    makes the function TOTAL and kernel-reducible (so `decide`, not `native_decide`). -/
-def matchSym (g : Grammar) : Nat → Sym → List Char → List (CaptureMap × List Char)
+    makes the function TOTAL and kernel-reducible (so `decide`, not `native_decide`).
+
+    `qual` is the IMMEDIATE-PARENT production name (`""` at the start production). A matched
+    nonterminal `name` is recorded under BOTH its bare key `name` AND — when `qual` is
+    nonempty — the qualified key `qual ++ "." ++ name`. So a nonterminal reused in several
+    parents (e.g. `hh` in both `Time` and `Offset`) is still reachable *unambiguously* as
+    `Time.hh` / `Offset.hh`, while the bare `name` keeps working for uniquely-used captures
+    (backward compatible: unique captures resolve by bare name exactly as before). -/
+def matchSym (g : Grammar) (qual : String) : Nat → Sym → List Char → List (CaptureMap × List Char)
   | _,      .lit l,        cs =>
       let ls := l.toList
       if ls.isPrefixOf cs then [([], cs.drop ls.length)] else []
@@ -65,33 +74,38 @@ def matchSym (g : Grammar) : Nat → Sym → List Char → List (CaptureMap × L
       match g.prod? name with
       | none   => []
       | some p =>
-          (matchProd g fuel p cs).map (fun (m, rem) =>
+          -- children of `name` are qualified by `name`
+          (matchProd g name fuel p cs).map (fun (m, rem) =>
             let consumed := String.ofList (cs.take (cs.length - rem.length))
-            ((name, consumed) :: m, rem))
+            let keys := if qual.isEmpty then [(name, consumed)]
+                        else [(name, consumed), (qual ++ "." ++ name, consumed)]
+            (keys ++ m, rem))
 
-/-- All ways a sequence matches a prefix of `cs`. -/
-def matchSeq (g : Grammar) : Nat → Seq → List Char → List (CaptureMap × List Char)
+/-- All ways a sequence matches a prefix of `cs`. `qual` = the enclosing production name. -/
+def matchSeq (g : Grammar) (qual : String) : Nat → Seq → List Char → List (CaptureMap × List Char)
   | _,    [],           cs => [([], cs)]
   | fuel, item :: rest, cs =>
-      let present := (matchSym g fuel item.sym cs).flatMap (fun (m1, r1) =>
-        (matchSeq g fuel rest r1).map (fun (m2, r2) => (m1 ++ m2, r2)))
-      if item.optional then present ++ matchSeq g fuel rest cs else present
+      let present := (matchSym g qual fuel item.sym cs).flatMap (fun (m1, r1) =>
+        (matchSeq g qual fuel rest r1).map (fun (m2, r2) => (m1 ++ m2, r2)))
+      if item.optional then present ++ matchSeq g qual fuel rest cs else present
 
-/-- All ways a production matches a prefix of `cs` (union over alternatives). -/
-def matchProd (g : Grammar) (fuel : Nat) (p : Production) (cs : List Char) :
+/-- All ways a production matches a prefix of `cs` (union over alternatives). `qual` is the
+    production's OWN name, used to qualify the captures its alternatives produce. -/
+def matchProd (g : Grammar) (qual : String) (fuel : Nat) (p : Production) (cs : List Char) :
     List (CaptureMap × List Char) :=
-  p.alts.flatMap (fun alt => matchSeq g fuel alt cs)
+  p.alts.flatMap (fun alt => matchSeq g qual fuel alt cs)
 
 end
 
 /-- Decode a string into a capture assignment: a full-consumption match of the start
     production. Fuel = #productions (DAG-depth backstop). Returns the first such
-    assignment, or `none` if the string is not well-formed. -/
+    assignment, or `none` if the string is not well-formed. Start-production children are
+    unqualified (`qual := ""`), so top-level captures keep their bare names. -/
 def decode (g : Grammar) (s : String) : Option CaptureMap :=
   match g.startProd? with
   | none   => none
   | some p =>
-      let full := (matchProd g g.prods.length p s.toList).filter (fun (_, rem) => rem.isEmpty)
+      let full := (matchProd g "" g.prods.length p s.toList).filter (fun (_, rem) => rem.isEmpty)
       full.head?.map (·.1)
 
 /-- The value function: decode the string, then evaluate the value expression against

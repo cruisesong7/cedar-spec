@@ -18,6 +18,8 @@ import Lean
 import FormatSpec.Grammar
 import FormatSpec.Classify
 import FormatSpec.Denote
+import FormatSpec.Reconcile
+import FormatSpec.Value
 
 /-!
 # Inlined per-production predicate synthesis
@@ -65,11 +67,11 @@ def symPred (specName : Name) : Sym → (v : TSyntax `term) → CommandElabM (TS
       let refId := mkIdent (specName ++ `IsWf ++ nm.toName)
       `($refId $v)
 
-/-- Lowercase the first character (nonterminal `Integer` → binder `integer`). -/
-private def deCap (s : String) : String :=
-  match s.toList with
-  | []      => s
-  | c :: cs => String.ofList (c.toLower :: cs)
+/-- Nonterminal name → its `∃`-binder in the inlined predicates. Shares `surfaceBinder`
+    (from `Value`) so the well-formedness binders match the value/constraint parameter names
+    exactly: CamelCase lowers the first char (`Integer` → `integer`), an all-caps acronym
+    lowers fully (`YYYY` → `yyyy`, not `yYYY`). -/
+private def deCap (s : String) : String := surfaceBinder s
 
 /-- Base binder name for a capturing symbol; `none` for a literal (no binder). -/
 private def binderBase : Sym → Option String
@@ -100,6 +102,22 @@ private def assignBinders (items : List SymItem) : List (Option String) := Id.ru
         seen := seen.insert nm (idx + 1)
         out := out ++ [some s!"{nm}{idx}"]
   return out
+
+/-- Build `∃ x₁ x₂ … xₙ, body` as a SINGLE existential binding all `binders` at once
+    (`∃ a b c, P`), rather than nested `∃ a, ∃ b, ∃ c, P`. Reads the same but keeps the
+    term flatter, which makes the reconciliation proof's existential handling easier
+    (fewer `∃`-intro/elim layers). Empty `binders` ⟹ `body` unchanged. -/
+def mkExists (binders : List (TSyntax `ident)) (body : TSyntax `term) :
+    CommandElabM (TSyntax `term) := do
+  match binders with
+  | []      => pure body
+  | _ =>
+    -- `∃`'s antiquotation splat expects `explicitBinders`; build one node holding all the
+    -- idents (an `unbracketedExplicitBinders` with no type ascription).
+    let bis ← binders.toArray.mapM (fun id => `(Lean.binderIdent| $id:ident))
+    let ueb ← `(Lean.unbracketedExplicitBinders| $bis*)
+    let eb ← `(Lean.explicitBinders| $ueb:unbracketedExplicitBinders)
+    `(∃ $eb, $body)
 
 /-- Predicate that string `whole` matches a NON-optional sequence, in the flat form that
     reads like the hand spec: bind one variable per capture (named from the grammar),
@@ -132,7 +150,7 @@ def seqPredFlat (specName : Name) (whole : TSyntax `term) (items : List SymItem)
       | x :: xs => xs.foldlM (fun acc y => `($acc ++ $y)) x
     let eqp ← `($whole = $concat)
     let body ← preds.foldlM (fun acc p => `($acc ∧ $p)) eqp
-    binders.foldrM (fun id acc => `(∃ $id:ident, $acc)) body
+    mkExists binders body
 
 /-- Peel a single item off the front of `whole`, then recurse on `rest`.
     * a LITERAL is inlined into the equation with no binder (`whole = "-" ++ tl ∧ …`),
@@ -198,7 +216,7 @@ def seqAllOptional (specName : Name) (whole : TSyntax `term) (items : List SymIt
     `($pTm = "" ∨ $hd))
   let eqp ← `($whole = $concat)
   let body ← pieceProps.foldlM (fun acc p => `($acc ∧ $p)) eqp
-  binders.foldrM (fun id acc => `(∃ $id:ident, $acc)) body
+  mkExists binders body
 
 /-- Predicate that string `whole` matches sequence `items`:
     * no optionals            → flat named form (`seqPredFlat`);
@@ -245,5 +263,230 @@ where
           let (visited, acc) := p.directRefs.foldl (fun (st : List String × List Production) r =>
             goName g r st.1 st.2) (visited, acc)
           (visited, p :: acc)
+
+/-! ## Reconciliation proof synthesis (engine `IsWf` ⟺ surface `IsWf.<Prod>`)
+
+Emits, per production (leaf-first), a lemma `<Name>.matchesRef.<Prod>` proving the engine
+denotation of a *reference* to `<Prod>` equals the surface predicate `<Name>.IsWf.<Prod>`,
+plus a top-level `<Name>.IsWf_equiv` bridging `IsWf grammar` to `<Name>.IsWf.<start>`. The
+proofs are a fixed skeleton discharged by the `FormatSpec/Reconcile.lean` lemmas + a uniform
+`simp`/`grind` closer; see that module and design note §16. -/
+
+/-- Subtree depth of a production: the longest chain of nonterminal references starting at
+    `name` (a leaf with no refs has depth 1). This is the exact fuel *offset* at which the
+    production's `matchesRef` lemma must be stated: the engine reference `matchesSym g
+    (fuel+depth) (ref name)` decrements one fuel per ref hop, so each descendant reference
+    lands on a `_+1` successor that its own `∀ fuel` lemma can unify against. Assumes the
+    grammar is acyclic (`fuel` bounds the recursion by #productions as a backstop). -/
+partial def subtreeDepth (g : Grammar) (name : String) (fuel : Nat) : Nat :=
+  match fuel, g.prod? name with
+  | 0, _            => 1
+  | _, none         => 1
+  | fuel+1, some p  =>
+      let childDepths := p.directRefs.map (fun r => subtreeDepth g r fuel)
+      1 + childDepths.foldl Nat.max 0
+
+/-- Render a `Sym` as a `SymItem` literal term (mirrors `elabSym`/`elabItem` but produces
+    the fully-applied constructor form used inside the `show … = some <prod> from rfl`). -/
+private def symItemLit (it : SymItem) : CommandElabM (TSyntax `term) := do
+  let symT ← match it.sym with
+    | .lit l        => `(Sym.lit $(Syntax.mkStrLit l))
+    | .ref nm       => `(Sym.ref $(Syntax.mkStrLit nm))
+    | .term tok ls  =>
+      let tokT ← match tok with
+        | .digit    => `(TokClass.digit)
+        | .hexDigit => `(TokClass.hexDigit)
+      let lsT ← match ls with
+        | .exactly n    => `(LenSpec.exactly $(quote n))
+        | .between lo hi => `(LenSpec.between $(quote lo) $(quote hi))
+        | .atLeastOne   => `(LenSpec.atLeastOne)
+      `(Sym.term $tokT $lsT)
+  let optT ← if it.optional then `(true) else `(false)
+  `(SymItem.mk $symT $optT)
+
+/-- Render a production as a `Production.mk <name> [<alt>…]` literal term. -/
+private def prodLit (p : Production) : CommandElabM (TSyntax `term) := do
+  let altTerms ← p.alts.mapM (fun alt => do
+    let itemTerms ← alt.mapM symItemLit
+    let sep : Syntax.TSepArray `term "," := .ofElems itemTerms.toArray
+    `([$sep,*]))
+  let asep : Syntax.TSepArray `term "," := .ofElems altTerms.toArray
+  `(Production.mk $(Syntax.mkStrLit p.name) [$asep,*])
+
+/-- The leaf-collapse `simp` lemma names for the terminals appearing in a production
+    (so `matchesTerm` rewrites to the surface `IsDigits`/… vocabulary). -/
+private def leafLemmasFor (p : Production) : List (TSyntax `term) := Id.run do
+  let mut out : List (TSyntax `term) := []
+  let mut haveDigits := false
+  let mut haveHex := false
+  for alt in p.alts do
+    for it in alt do
+      if let .term tok _ := it.sym then
+        match tok with
+        | .digit    => haveDigits := true
+        | .hexDigit => haveHex := true
+  -- Reference the leaf-collapse lemmas by (unresolved) name — they live in
+  -- `FormatSpec.Reconcile`, which the GENERATED file imports; resolving them here would
+  -- force an Emit→Reconcile import. Include all shapes per class; `simp only` ignores
+  -- any that don't fire.
+  let mk (n : String) : TSyntax `term := ⟨(mkIdent (Name.mkSimple n)).raw⟩
+  if haveDigits then
+    out := out ++ [mk "IsDigits_matchesTerm", mk "IsFixedDigits_matchesTerm",
+      mk "IsDigitsBetween_matchesTerm"]
+  if haveHex then
+    out := out ++ [mk "IsHexDigits_matchesTerm", mk "IsFixedHexDigits_matchesTerm",
+      mk "IsHexDigitsBetween_matchesTerm"]
+  return out
+
+/-- The namespace the per-production reconciliation support lemmas live in:
+    `<Name>.Internal.matchesRef.<Prod>`. Kept under `Internal` to visually demote the
+    grinding (it's support for `<Name>.IsWf_equiv`, not a public result). -/
+def matchesRefName (specName : Name) (prod : String) : Name :=
+  specName ++ `Internal ++ `matchesRef ++ prod.toName
+
+/-- Sibling `matchesRef` lemma references for the nonterminals a production references
+    (so they fire as `simp` rewrites, resolving each engine reference to its surface
+    predicate). -/
+private def refLemmasFor (specName : Name) (p : Production) : List (TSyntax `term) :=
+  p.directRefs.eraseDups.map (fun r =>
+    ⟨(mkIdent (matchesRefName specName r)).raw⟩)
+
+/-- Is a production's (single) alternative an ALL-optional capture run? (Mirrors
+    `seqPred`'s branch — decides `matchesSeq_opt_cons` vs raw `matchesSeq.eq_2`.) -/
+private def altAllOptional (alt : Seq) : Bool :=
+  alt.all (fun it => it.optional && (binderBase it.sym).isSome)
+
+
+/-- Emit `<Name>.matchesRef.<Prod>` : `∀ fuel s, matchesSym g (fuel+depth) (ref "Prod") s ↔
+    <Name>.IsWf.<Prod> s` (or, for the start/top production called via `matchesProd`, the
+    `matchesProd` form). `depth` = `subtreeDepth`. -/
+def matchesRefProof (specName : Name) (grammarId : TSyntax `ident) (p : Production)
+    (depth : Nat) : CommandElabM (TSyntax `command) := do
+  let lemId := mkIdent (matchesRefName specName p.name)
+  let surfId := mkIdent (specName ++ `IsWf ++ p.name.toName)
+  let prodT ← prodLit p
+  let nameLit := Syntax.mkStrLit p.name
+  let depthLit := Syntax.mkNatLit depth
+  -- wrap a `term` as a `simpLemma` arg so it can be spliced into a `simp only [...]` list
+  let asSimp := fun (t : TSyntax `term) => show CommandElabM (TSyntax `Lean.Parser.Tactic.simpLemma) from
+    `(Lean.Parser.Tactic.simpLemma| $t:term)
+  let leaves ← (leafLemmasFor p).mapM asSimp
+  let refs ← (refLemmasFor specName p).mapM asSimp
+  let multiAlt := p.alts.length > 1
+  -- opt_cons only for an all-optional single alternative (mirrors `seqPred`'s branch);
+  -- otherwise the raw `matchesSeq` equations (`eq_1`/`eq_2`) drive the peel/flat form.
+  let useOptCons := (p.alts.length == 1) && altAllOptional (p.alts.headD [])
+  -- Build the FULL body simp-lemma list as one array and splat it once (empty sub-lists
+  -- would otherwise produce invalid trailing commas). `mk` = name → simpLemma.
+  let mk := fun (n : Name) => asSimp ⟨(mkIdent n).raw⟩
+  let bodyBase : List (TSyntax `Lean.Parser.Tactic.simpLemma) ←
+    (if multiAlt then
+      [``List.mem_cons, ``List.mem_singleton, ``List.not_mem_nil].mapM mk
+    else pure [])
+  let optCons ← if useOptCons then (do pure [← mk ``matchesSeq_opt_cons]) else pure []
+  let seqEqs ← [``matchesSeq.eq_1, ``matchesSeq.eq_2].mapM mk
+  let membershipEqs ← if multiAlt then
+      (do pure [← mk ``exists_eq_or_imp, ← mk ``exists_eq_left])
+    else pure []
+  -- shared boolean/if reducers
+  let reducers ← [``exists_eq_left, ``if_true, ``if_false, ``Bool.false_eq_true,
+    ``false_and, ``or_false, ``or_assoc].mapM mk
+  let matchesSymL ← mk ``matchesSym
+  let allBody : Array (TSyntax `Lean.Parser.Tactic.simpLemma) :=
+    (bodyBase ++ optCons ++ seqEqs ++ membershipEqs ++ reducers ++ [matchesSymL]
+      ++ leaves ++ refs).toArray
+  if multiAlt then
+    `(theorem $lemId (fuel : Nat) (s : String) :
+          matchesSym $grammarId (fuel + $depthLit) (Sym.ref $nameLit) s ↔ $surfId s := by
+        rw [matchesSym, show ($grammarId).prod? $nameLit = some $prodT from rfl]
+        dsimp only
+        unfold matchesProd $surfId
+        simp (config := { maxSteps := 1000000 }) only [$allBody,*]
+        repeat'
+          first
+          | apply or_congr
+          | (simp (config := { maxSteps := 1000000 }) only [String.append_assoc, String.append_empty, exists_and_left,
+                ← and_assoc, exists_eq_left, exists_eq_left', exists_eq_right, and_true]
+             try grind [String.append_assoc, String.append_empty]))
+  else
+    `(theorem $lemId (fuel : Nat) (s : String) :
+          matchesSym $grammarId (fuel + $depthLit) (Sym.ref $nameLit) s ↔ $surfId s := by
+        rw [matchesSym, show ($grammarId).prod? $nameLit = some $prodT from rfl]
+        dsimp only
+        rw [matchesProd_single]
+        unfold $surfId
+        simp (config := { maxSteps := 1000000 }) only [$allBody,*]
+        simp (config := { maxSteps := 1000000 }) only [String.append_assoc, String.append_empty, exists_and_left,
+          ← and_assoc, exists_eq_left, exists_eq_left', exists_eq_right, and_true]
+        try grind [String.append_assoc, String.append_empty])
+
+/-- Emit the top-level bridge `<Name>.IsWf_equiv : IsWf g s ↔ <Name>.IsWf.<start> s`.
+    Reduces `IsWf` to the start production's `matchesProd` at concrete fuel `g.prods.length`,
+    re-folds it as a `matchesSym` reference (`matchesSym g (N+1) (ref start) = matchesProd g N
+    …` definitionally), then applies the start production's `matchesRef` lemma (`∀ fuel`, so
+    the concrete fuel unifies). -/
+def isWfEquivProof (specName : Name) (grammarId : TSyntax `ident) (start : Production)
+    : CommandElabM (TSyntax `command) := do
+  let equivId := mkIdent (specName ++ `IsWf_equiv)
+  let startRef := mkIdent (matchesRefName specName start.name)
+  let surfId := mkIdent (specName ++ `IsWf ++ start.name.toName)
+  let startLit := Syntax.mkStrLit start.name
+  let prodT ← prodLit start
+  `(theorem $equivId (s : String) : IsWf $grammarId s ↔ $surfId s := by
+      rw [isWf_eq_isWfProd_start, IsWfProd,
+        show ($grammarId).prod? ($grammarId).start = some $prodT from rfl]
+      -- `IsWf` uses fuel = `prods.length`; re-express the start production match as the
+      -- reference `matchesSym _ (prods.length) (ref start)` so the `matchesRef` lemma fires.
+      have hstart : ∀ n, matchesProd $grammarId n $prodT s
+          = matchesSym $grammarId (n+1) (Sym.ref $startLit) s := by
+        intro n
+        rw [matchesSym, show ($grammarId).prod? $startLit = some $prodT from rfl]
+      show matchesProd $grammarId ($grammarId).prods.length $prodT s ↔ _
+      rw [hstart]
+      exact $startRef _ s)
+
+/-- Emit the FULL acceptance bridge `<Name>.IsValid_equiv : <Name>.IsValid s ↔ <Name>.isValid s`
+    — the surface (readable) acceptance predicate equals the engine (decode-backed) one.
+    Composes three facts: `IsWf_equiv` (readable `IsWf.<start>` ⟺ interpreter `IsWf grammar`),
+    `decodeSome_iff_IsWf` (interpreter `IsWf` ⟺ `decode.isSome`, the roundtrip), and reader
+    agreement (`natOf (getD "") = Env.natVal`, …) that reconciles the surface `Constraints` (on
+    decoded component strings) with the engine's `wfPart`/`valPart` `eval`. The whole thing
+    closes by `simp` after unfolding both sides. `hasConstraints`/`hasValue`/`opaque` control
+    which spec-specific defs to unfold (a def absent ⟹ not unfolded). -/
+def isValidEquivProof (specName : Name)
+    (hasConstraints hasValue : Bool) : CommandElabM (TSyntax `command) := do
+  let equivId    := mkIdent (specName ++ `IsValid_equiv)
+  let validSurf  := mkIdent (specName ++ `IsValid)
+  let validEng   := mkIdent (specName ++ `isValid)
+  let isWfEng    := mkIdent (specName ++ `isWf)
+  let scEng      := mkIdent (specName ++ `satisfiesConstraints)
+  let scSurf     := mkIdent (specName ++ `SatisfiesConstraints)
+  let cList      := mkIdent (specName ++ `constraints)
+  let cRel       := mkIdent (specName ++ `Constraints)
+  let valFn      := mkIdent (specName ++ `value)
+  let valExpr    := mkIdent (specName ++ `valueExpr)
+  let equivWf    := mkIdent (specName ++ `IsWf_equiv)
+  -- Defs to unfold, in dependency order: `SatisfiesConstraints → Constraints` (surface) and
+  -- the engine `constraints` list; then `value` (surface) and `valueExpr` (engine AST, which
+  -- only appears *after* the `constraints` list is unfolded). Each included only when present.
+  let surfUnfolds : Array (TSyntax `ident) :=
+    #[scSurf] ++ (if hasConstraints then #[cRel] else #[]) ++ #[cList]
+      ++ (if hasValue then #[valFn, valExpr] else #[])
+  -- The final `simp` lemma set (fixed): unfold the constraint-entry machinery + reader
+  -- agreement, collapse the wf/val classification `if`s and the `∀ _ ∈ []` tails.
+  `(theorem $equivId (s : String) : $validSurf s ↔ $validEng s := by
+      unfold $validSurf $validEng $isWfEng $scEng
+      unfold FormatSpec.isWf FormatSpec.satisfiesConstraints
+      rw [← $equivWf, ← decodeSome_iff_IsWf]
+      unfold $[$surfUnfolds:ident]*
+      simp only [FormatSpec.component, List.forall_mem_cons, List.forall_mem_singleton,
+        List.not_mem_nil, forall_const, if_true, if_false, ConstraintEntry.wfPart,
+        ConstraintEntry.valPart, Constraint.wfPart, Constraint.valPart, Constraint.isValueDependent,
+        Constraint.eval, ValExpr.eval, presentCount, natOf_getD, intOf_getD, lenOf_getD, signOf_getD,
+        and_true, true_and, false_implies, implies_true, Bool.false_eq_true]
+      try grind)
+  -- After the `simp`, both sides are the same set of atoms — but the engine groups all
+  -- `wfPart`s then all `valPart`s, while the surface groups per-constraint. `grind` closes
+  -- that ∧-reassociation/permutation (a no-op `try` when `simp` already finished the goal).
 
 end FormatSpec

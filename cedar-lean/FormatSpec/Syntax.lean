@@ -95,18 +95,31 @@ syntax (colGt fmtItem)+ : fmtSeq
 declare_syntax_cat fmtProd
 syntax withPosition(ident " ::= " sepBy1(fmtSeq, " | ")) : fmtProd
 
-/-- The optional `constraints` section: predicates written in the constraint-DSL
-    (`constraintExpr` category from `FormatSpec.Constraint`), one per line (`colGt`, like
-    the `grammar` productions — no commas). Each is auto-classified (string → `IsWf`,
-    value → `SatisfiesConstraints`) downstream. -/
+/-- The optional `constraints` section: predicates in the constraint-DSL (`constraintExpr`),
+    one per line (`colGt`, like the `grammar` productions — no commas). Auto-classified
+    (string → `IsWf`, value → `SatisfiesConstraints`) downstream. -/
 syntax fmtConstraints := "constraints" (colGt constraintExpr)+
 
-/-- The optional `value` section. Two tiers (design note §16.4/§16.7):
-    * `value <formula>` — the value-DSL (`valExpr`); analyzable, matches `value(X)=…`.
-    * `value opaque := <term>` — the ESCAPE HATCH: an arbitrary Lean term of type
-      `Env → Int`, for values outside the DSL vocabulary (CoStar++-level expressiveness,
-      definitional — no auto-analysis). Ensures no grammar is ever blocked. -/
-syntax fmtValue := "value" (("opaque" " := " term) <|> valExpr)
+/-- One ESCAPE entry: an ordinary Lean function applied to capture names, `f X Y …` (head
+    ident + one-or-more capture idents). Its own syntax category so it destructures cleanly
+    (vs. raw `Syntax` archaeology). Shared by the `constraints'` / `value'` sections. -/
+declare_syntax_cat fmtEscEntry
+syntax ident (ppSpace ident)+ : fmtEscEntry
+
+/-- The optional `constraints'` ESCAPE section (design note §16.7): constraints outside the
+    DSL vocabulary, each an `f X Y …` call with `f : String → … → Bool`, one line each
+    (`colGt`). Reads like a Lean call; the generator feeds each capture its decoded string
+    (no `Env`/`Option` in the author's `f`). The prime marks "the raw-Lean escape of the
+    `constraints` section". -/
+syntax fmtConstraintsEsc := "constraints'" (colGt fmtEscEntry)+
+
+/-- The optional `value` section: the value-DSL formula (`valExpr`); analyzable, `value(X)=…`. -/
+syntax fmtValue := "value" valExpr
+
+/-- The optional `value'` ESCAPE section (design note §16.4/§16.7): a value outside the DSL
+    vocabulary, an `f X Y …` call with `f : String → … → Int`. Same shape/contract as
+    `constraints'` (no `Env`); the prime marks "the raw-Lean escape of the `value` section". -/
+syntax fmtValueEsc := "value'" fmtEscEntry
 
 /-- The optional `parser` clause: names the external hand-written parser and the
     projection reading its value's `Int` denotation back out. When present, the command
@@ -114,23 +127,22 @@ syntax fmtValue := "value" (("opaque" " := " term) <|> valExpr)
     `sorry`d theorems relating that parser to the generated spec. -/
 syntax fmtParser := "parser" term " projection " term
 
-/-- Optional trailing clause: `to "path.lean"` writes the generated declarations to a
-    `.lean` file on disk (de-hygiened, clean source), in addition to elaborating them. -/
+/-- Optional trailing clause: `to "<dir>"` writes the generated module to `<dir>/spec.lean`
+    (default dir `.`; the directory must already exist). -/
 syntax fmtTo := "to " str
-
-/-- Optional `internals` marker: also show/write the engine declarations. -/
-syntax fmtInternals := "internals"
 
 /-- The `format_spec` command, sections in order: `grammar` (required), `value`
     (optional), `constraints` (optional), `parser` (optional), `to` (optional). `value`
-    precedes `constraints` so a constraint can refer to `value`. The `parser` clause
-    triggers emission of the sorried contract theorems; `to` writes output to a file.
-    The optional `internals` marker (after the name) also surfaces the engine defs. -/
+    precedes `constraints` so a constraint can refer to `value`. The `parser` clause emits
+    the sorried contract theorems; the `to "<dir>"` clause writes the generated module to
+    `<dir>/spec.lean` (in addition to elaborating everything). `#show` logs each declaration. -/
 syntax (name := formatSpecCmd)
-  ("#show ")? "format_spec " ident (fmtInternals)? " where "
+  ("#show ")? "format_spec " ident " where "
     "grammar" (colGt fmtProd)+
     (fmtValue)?
+    (fmtValueEsc)?
     (fmtConstraints)?
+    (fmtConstraintsEsc)?
     (fmtParser)?
     (fmtTo)? : command
 
@@ -207,6 +219,11 @@ def parseProd : TSyntax `fmtProd → CommandElabM Production
       pure { name := lhs.getId.toString, alts := ← alts.getElems.toList.mapM parseSeq }
   | s => throwErrorAt s "unrecognized production"
 
+/-- Destructure an ESCAPE entry `f X Y …` into its head function ident and capture idents. -/
+def parseEscEntry : TSyntax `fmtEscEntry → CommandElabM (TSyntax `ident × Array (TSyntax `ident))
+  | `(fmtEscEntry| $f:ident $is:ident*) => pure (f, is)
+  | s => throwErrorAt s "unrecognized escape entry"
+
 /-- Strip macro scopes from every identifier in a syntax tree, so pretty-printing yields
     clean source without hygiene daggers (`✝`). Used when writing generated declarations
     to a file. -/
@@ -216,112 +233,193 @@ partial def deHygiene (stx : Syntax) : Syntax :=
   | .node info kind args       => .node info kind (args.map deHygiene)
   | s                          => s
 
-/-- Elaborate the `format_spec` command: generates the spec declarations (grammar,
-    per-production `isWf`, value, constraints, bundled predicates, `computeValue`) and —
-    with a `parser` clause — the sorried contract theorems. `#show` logs the generated
-    source; `to "path"` writes it (de-hygiened) to a file. -/
+/-- Elaborate the `format_spec` command: generates + elaborates the declarations, tagged
+    into four sections, and — with a `to "<dir>"` clause — writes them as one module
+    `<dir>/spec.lean`. `#show` additionally logs each declaration.
+
+    The generated file is ONE module in four `═══`-banner sections (dependency order):
+    * **spec** (`emitSpec`) — the reader-facing spec: `grammar`, readable per-production
+      `IsWf.*` predicates, `value`, `Constraints`, `SatisfiesConstraints`, `IsValid`
+      (valid = grammar ∧ constraints, matching Cedar's wording).
+    * **engine** (`emitEngine`) — the analyzable/executable machinery: deep `valueExpr`/
+      `valueFn`/`constraints` ASTs + the decode-backed interpreter bundle (`isWf`/
+      `isValid`/`computeValue`).
+    * **soundness** (`emitSound`) — the guarantees tying the two together: the surface⟺engine
+      `Internal.matchesRef.*` lemmas + `IsWf_equiv`, and the derived `DecidablePred
+      IsWf.<start>` instance (transported across the equiv — the payoff of the interpreter).
+    * **contracts** (`emitContract`, only with a `parser` clause) — the sorried obligations
+      against the external parser, stated over the SURFACE `IsValid`/`computeValue`
+      (discharged later by bridging to `decode` via `IsWf_equiv`). -/
 @[command_elab formatSpecCmd]
 def elabFormatSpec : CommandElab := fun stx => do
   match stx with
-  | `($[#show%$sh]? format_spec $name:ident $[$intl:fmtInternals]? where grammar $prods:fmtProd* $[$v:fmtValue]? $[$cs:fmtConstraints]? $[$pr:fmtParser]? $[$to?:fmtTo]?) => do
-      -- `#show` logs every generated declaration; a `to "path"` clause additionally
-      -- collects them (de-hygiened) and writes clean source to that file.
-      -- By default only the SURFACE declarations are displayed/written (`IsWf.*`, `value`,
-      -- `Constraints`, `SatisfiesConstraints`, `IsAccepted`); the ENGINE declarations
-      -- (grammar data, `valueExpr`, `valueFn`, `constraints` list, lowercase interpreter
-      -- bundle) are always *elaborated* (surface refs need them) but only *shown/written*
-      -- when the `internals` keyword is given. `emit` = surface, `emitE` = engine.
+  | `($[#show%$sh]? format_spec $name:ident where grammar $prods:fmtProd* $[$v:fmtValue]? $[$ve:fmtValueEsc]? $[$cs:fmtConstraints]? $[$cse:fmtConstraintsEsc]? $[$pr:fmtParser]? $[$to?:fmtTo]?) => do
       let showing := sh.isSome
-      let showEngine := intl.isSome
-      let buf ← IO.mkRef (#[] : Array String)
-      let writing := to?.isSome
-      let record (cmd : TSyntax `command) : CommandElabM Unit := do
+      let bufS ← IO.mkRef (#[] : Array String)   -- spec section
+      let bufE ← IO.mkRef (#[] : Array String)   -- engine section
+      let bufP ← IO.mkRef (#[] : Array String)   -- soundness (proofs) section
+      let bufC ← IO.mkRef (#[] : Array String)   -- contracts section (parser clause)
+      let record (buf : IO.Ref (Array String)) (cmd : TSyntax `command) : CommandElabM Unit := do
         let clean : TSyntax `command := ⟨deHygiene cmd.raw⟩
         let src := (← liftCoreM (Lean.PrettyPrinter.ppCommand clean)).pretty
         if showing then logInfo src
-        if writing then buf.modify (·.push src)
-      -- surface: shown/written by default
-      let emit (cmd : TSyntax `command) : CommandElabM Unit := do
-        if showing || writing then record cmd
-        elabCommand cmd
-      -- engine: shown/written ONLY with `internals`; always elaborated
-      let emitE (cmd : TSyntax `command) : CommandElabM Unit := do
-        if showEngine && (showing || writing) then record cmd
-        elabCommand cmd
-      -- Grammar data literal (ENGINE): the interpreter/decode operate on this; surface
-      -- refs (`SatisfiesConstraints`) need it, so always elaborated, shown only w/ internals.
+        buf.modify (·.push src)
+      -- All sections are elaborated AND recorded (the single generated file holds them all).
+      let emitSpec   (cmd : TSyntax `command) : CommandElabM Unit := do record bufS cmd; elabCommand cmd
+      let emitEngine (cmd : TSyntax `command) : CommandElabM Unit := do record bufE cmd; elabCommand cmd
+      let emitSound  (cmd : TSyntax `command) : CommandElabM Unit := do record bufP cmd; elabCommand cmd
+      let emitContract (cmd : TSyntax `command) : CommandElabM Unit := do record bufC cmd; elabCommand cmd
+      -- Grammar data literal (SPEC): the auditable EBNF transcription; the interpreter,
+      -- proofs, and `SatisfiesConstraints`'s decode bridge all reference it. The START symbol
+      -- is the FIRST production's name (NOT the `format_spec` display name — they may differ,
+      -- e.g. `format_spec IPv4` whose first production is `V4Addr`); it must name a real
+      -- production so `grammar.prod? grammar.start` resolves.
+      let prodVals ← prods.toList.mapM parseProd
+      let startName := (prodVals.head?.map (·.name)).getD name.getId.toString
       let prodTerms ← prods.mapM elabProd
       let sep : Syntax.TSepArray `term "," := .ofElems prodTerms
       let grammarIdent := mkIdentFrom name (name.getId ++ `grammar)
-      -- `grammar` stays visible: it's the auditable EBNF transcription, and the surface
-      -- `satisfiesConstraints` bridge references it.
-      emit (← `(def $grammarIdent : Grammar :=
-                    Grammar.mk $(Syntax.mkStrLit name.getId.toString) [$sep,*]))
-      -- Per-production well-formedness: emit `<Name>.IsWf.<Prod>` for each production as an
-      -- INLINED structural predicate (∃ named captures, s = … ∧ …) — the readable SURFACE
-      -- spec, a `Prop`, reading like the hand specs (`IsWfDatetime`, `IsWfV4`). Naming
-      -- convention: capital-`I` `IsWf` = the Prop you read/prove; lowercase `isWf` (the
-      -- bundle, below) = the behind-the-scenes decidable checker. Same root word `Wf`,
-      -- the case signals surface-vs-engine. Emitted in topological (leaf-first) order.
+      emitSpec (← `(def $grammarIdent : Grammar :=
+                    Grammar.mk $(Syntax.mkStrLit startName) [$sep,*]))
+      -- Per-production well-formedness (SPEC): `<Name>.IsWf.<Prod>` for each production as
+      -- an INLINED structural predicate (∃ named captures, s = … ∧ …) — the readable form,
+      -- reading like the hand specs (`IsWfDatetime`, `IsWfV4`). Capital-`I` `IsWf` = the Prop
+      -- you read/prove; lowercase `isWf` (the engine bundle, below) = the decidable checker.
+      -- These are reader-facing, so SPEC section. Emitted in topological (leaf-first) order.
       let gval : FormatSpec.Grammar :=
-        { start := name.getId.toString, prods := ← prods.toList.mapM parseProd }
+        { start := startName, prods := prodVals }
       for prod in FormatSpec.topoOrder gval do
         let pIdent := mkIdentFrom name (name.getId ++ `IsWf ++ prod.name.toName)
         let sVar ← `(s)
         let body ← FormatSpec.prodPred name.getId prod sVar
-        emit (← `(def $pIdent (s : String) : Prop := $body))
-      -- Value (optional), processed BEFORE constraints so a constraint may refer to
-      -- `value`. Two tiers: `value opaque := <term>` binds the raw `Env → Int`;
-      -- `value <formula>` elaborates the value-DSL to a `ValExpr` (bound as `valueExpr`)
-      -- whose `eval` is the value fn. `valueSub` is the `ValExpr` term substituted for a
-      -- `value` reference in constraints (only in the DSL tier).
+        emitSpec (← `(def $pIdent (s : String) : Prop := $body))
+      -- SOUNDNESS + DECIDABILITY (SOUNDNESS section, emitted last). The readable `IsWf.<start>`
+      -- is `∃ …` over `String`, so it has NO structural `Decidable` instance; the ONLY way it
+      -- becomes executable is by transporting the interpreter's `DecidablePred (IsWf grammar)`
+      -- across the equivalence `<Name>.IsWf_equiv`. So the equivalence + the derived instance
+      -- are properties *of the spec* (soundness vs the analyzable engine, and an executable
+      -- validator via the interpreter — the whole point of keeping the interpreter). The
+      -- `Internal.matchesRef.*` support lemmas that `IsWf_equiv` is built from are tucked under
+      -- `.Internal`. This closure runs after the engine bundle (it references `IsWf grammar`).
+      -- `hasConstraints`/`hasValue`: which surface defs exist (set below), so the emitted
+      -- decidability instances unfold exactly the defs present.
+      let emitReconcile (hasConstraints hasValue : Bool) : CommandElabM Unit := do
+        let fuelBound := gval.prods.length
+        for prod in FormatSpec.topoOrder gval do
+          let depth := FormatSpec.subtreeDepth gval prod.name fuelBound
+          emitSound (← FormatSpec.matchesRefProof name.getId grammarIdent prod depth)
+        if let some startProd := gval.prods.find? (·.name == gval.start) then
+          emitSound (← FormatSpec.isWfEquivProof name.getId grammarIdent startProd)
+          let equivId  := mkIdentFrom name (name.getId ++ `IsWf_equiv)
+          let startIsWfId := mkIdentFrom name (name.getId ++ `IsWf ++ startProd.name.toName)
+          -- Explicit instance names (`<Name>.instDecidable*`): anonymous instances get an
+          -- auto-name derived from the (structurally identical) type `DecidablePred (String
+          -- → Prop)`, which collides across generated modules when several are imported.
+          let instWfId  := mkIdentFrom name (name.getId ++ `instDecidableIsWf)
+          let instScId  := mkIdentFrom name (name.getId ++ `instDecidableSatisfiesConstraints)
+          let instAccId := mkIdentFrom name (name.getId ++ `instDecidableIsValid)
+          emitSound (← `(instance $instWfId:ident : DecidablePred $startIsWfId := fun s =>
+                        decidable_of_iff _ ($equivId s)))
+          -- Decidability of the full validity predicate: `SatisfiesConstraints` is a
+          -- `def` over decode-extracted strings + decidable atoms (`≤`/`≠`/…), so it needs
+          -- its instance unfolded; then `IsValid = IsWf.<start> ∧ SatisfiesConstraints`
+          -- is decidable by the `And` instance (both conjuncts now decidable). This makes
+          -- `decide (<Name>.IsValid s)` — the executable validator — resolve.
+          let scSurfId  := mkIdentFrom name (name.getId ++ `SatisfiesConstraints)
+          let accSurfId := mkIdentFrom name (name.getId ++ `IsValid)
+          let cRIdent   := mkIdentFrom name (name.getId ++ `Constraints)
+          let valIdent  := mkIdentFrom name (name.getId ++ `value)
+          -- With no constraints section `SatisfiesConstraints` is an `abbrev … := True`
+          -- (transparently decidable), so no SC instance is needed; `IsValid`'s instance
+          -- then rests on `IsWf`'s instance + `True`'s. With constraints, unfold through
+          -- `SatisfiesConstraints → Constraints → value` to expose the decidable atoms.
+          if hasConstraints then
+            let unfoldList : Array (TSyntax `ident) :=
+              #[scSurfId, cRIdent] ++ (if hasValue then #[valIdent] else #[])
+            emitSound (← `(instance $instScId:ident : DecidablePred $scSurfId :=
+                          fun s => by simp only [$[$unfoldList:ident],*]; exact inferInstance))
+          -- `IsValid` is an `abbrev` (`IsWf.<start> s ∧ SatisfiesConstraints s`); both
+          -- conjuncts are decidable (above), so the `And` instance resolves in term mode.
+          emitSound (← `(instance $instAccId:ident : DecidablePred $accSurfId :=
+                        fun s => inferInstanceAs (Decidable (_ ∧ _))))
+          -- FULL acceptance equivalence: surface `IsValid` ⟺ engine `isValid`. Composes
+          -- `IsWf_equiv` + the `decodeSome_iff_IsWf` roundtrip (WF halves) with reader
+          -- agreement (constraint halves). The capstone soundness guarantee.
+          emitSound (← FormatSpec.isValidEquivProof name.getId hasConstraints hasValue)
+      -- Value (optional), processed BEFORE constraints so a constraint may refer to `value`.
+      -- DSL tier (`value <formula>`, `v`): elaborate the value-DSL to a `ValExpr` (bound as
+      -- `valueExpr`) whose `eval` is the value fn; `valueSub` is the `ValExpr` substituted for
+      -- a `value` reference in constraints. ESCAPE tier (`value' f X Y …`, `ve`): bind
+      -- `valueFn` to the author's fn applied to the decoded captures (no `ValExpr` AST — so
+      -- `computeValue`/contracts, which need the AST, are DSL-tier only).
       let mut valueSub : Option (TSyntax `term) := none
       let mut veIdent? : Option (TSyntax `ident) := none
       let mut valueCaps : List String := []
+      let mut hasValueEsc : Bool := false
       let mut constrCaps : Option (List String) := none  -- captures the surface `Constraints` binds (none ⟹ no constraints section)
       if let some vStx := v then
-        let inner := vStx.raw[1]
+        let ve : TSyntax `valExpr := ⟨vStx.raw[1]⟩
         let vfnIdent := mkIdentFrom name (name.getId ++ `valueFn)
-        if inner[0].isToken "opaque" then
-          let t : TSyntax `term := ⟨inner[2]⟩
-          emitE (← `(def $vfnIdent : Env → Int := $t))
-        else
-          let ve : TSyntax `valExpr := ⟨inner⟩
-          -- engine: the analyzable AST + its eval
-          let valTerm ← liftMacroM (elabValExpr ve)
-          let veIdent := mkIdentFrom name (name.getId ++ `valueExpr)
-          emitE (← `(def $veIdent : ValExpr := $valTerm))
-          emitE (← `(def $vfnIdent : Env → Int := ($veIdent).eval))
-          -- surface: a READABLE `<Name>.value` taking the captured component STRINGS
-          -- directly (no `Env`), via `natOf`/`intOf`/… — reads like the doc's
-          -- `value(Integer, Fraction) = int(Integer)·10⁴ + …`.
-          let readable ← liftMacroM (elabValReadableWith none ve)
-          let capNames := FormatSpec.valExprCaptures ve
+        -- engine: the analyzable AST + its eval
+        let valTerm ← liftMacroM (elabValExpr ve)
+        let veIdent := mkIdentFrom name (name.getId ++ `valueExpr)
+        emitEngine (← `(def $veIdent : ValExpr := $valTerm))
+        emitEngine (← `(def $vfnIdent : Env → Int := ($veIdent).eval))
+        -- spec: a READABLE `<Name>.value` taking the captured component STRINGS directly
+        -- (no `Env`), via `natOf`/`intOf`/… — reads like `value(Integer, Fraction) = …`.
+        let readable ← liftMacroM (elabValReadableWith none ve)
+        let capNames := FormatSpec.valExprCaptures ve
+        let binders : Array (TSyntax `ident) :=
+          (capNames.map (fun c => mkIdent (Name.mkSimple (FormatSpec.surfaceBinder c)))).toArray
+        let valIdent := mkIdentFrom name (name.getId ++ `value)
+        emitSpec (← `(def $valIdent $[($binders : String)]* : Int := $readable))
+        valueSub := some (← `($veIdent))
+        veIdent? := some veIdent
+        valueCaps := capNames
+      else if let some veStx := ve then
+        -- `value'` escape section: `value' f X Y …` — author fn applied to captures.
+        match veStx with
+        | `(fmtValueEsc| value' $e:fmtEscEntry) =>
+          let (f, is) ← parseEscEntry e
+          hasValueEsc := true
+          let vfnIdent := mkIdentFrom name (name.getId ++ `valueFn)
+          emitEngine (← `(def $vfnIdent : Env → Int := $(← liftMacroM (FormatSpec.opaqueEnvClosure f is))))
+          -- spec: a READABLE `<Name>.value` — the author's call over the surface string binders.
+          let capNames := is.toList.map (·.getId.toString)
           let binders : Array (TSyntax `ident) :=
             (capNames.map (fun c => mkIdent (Name.mkSimple (FormatSpec.surfaceBinder c)))).toArray
+          let bArgs : Array (TSyntax `term) := binders.map (fun i => ⟨i.raw⟩)
           let valIdent := mkIdentFrom name (name.getId ++ `value)
-          emit (← `(def $valIdent $[($binders : String)]* : Int := $readable))
-          -- Record the value's capture list so a `value` reference in constraints can be
-          -- rendered as `<Name>.value arg…` with the matching component binders.
-          valueSub := some (← `($veIdent))
-          veIdent? := some veIdent
+          emitSpec (← `(def $valIdent $[($binders : String)]* : Int := $f $bArgs*))
           valueCaps := capNames
+        | _ => throwUnsupportedSyntax
       -- Constraints (optional): constraint-DSL predicates, one per line, with `value`
       -- substituted by the value expression. The `fmtConstraints` node is
       -- `"constraints" (colGt constraintExpr)+`; arg 1 is the plain array of exprs.
       -- Always bind `<Name>.constraints` (empty list if the section is absent) so the
       -- bundled predicates below can reference it uniformly.
       let cIdent := mkIdentFrom name (name.getId ++ `constraints)
-      match cs with
-      | some csStx =>
-        let exprs : Array (TSyntax `constraintExpr) := csStx.raw[1].getArgs.map (⟨·⟩)
-        let cTerms ← exprs.mapM (fun e => liftMacroM (elabEntryWith valueSub e))
-        let csep : Syntax.TSepArray `term "," := .ofElems cTerms
-        emitE (← `(def $cIdent : List ConstraintEntry := [$csep,*]))
-        -- surface: a READABLE `<Name>.Constraints` Prop taking the captured component
-        -- STRINGS directly (no `Env`). A `value` reference renders as the readable
-        -- `<Name>.value <valueComponents>`. Parameters = every capture referenced by the
-        -- constraints ∪ (if `value` is used) the value's captures.
+      -- `constraints'` escape entries (`cse`): each is a raw `f X Y …` (head ident + capture
+      -- idents). Parse them into (fn, captureIdents) pairs. Present ⟹ caller import needed.
+      let escEntries : Array (TSyntax `ident × Array (TSyntax `ident)) ← match cse with
+        | some cseStx =>
+          let lines : Array (TSyntax `fmtEscEntry) := cseStx.raw[1].getArgs.map (⟨·⟩)
+          lines.mapM parseEscEntry
+        | none => pure #[]
+      let hasOpaque := !escEntries.isEmpty
+      -- DSL constraint exprs (may be empty even when `constraints'` is present).
+      let dslExprs : Array (TSyntax `constraintExpr) := match cs with
+        | some csStx => csStx.raw[1].getArgs.map (⟨·⟩)
+        | none       => #[]
+      if cs.isSome || cse.isSome then
+        -- ENGINE `constraints` list: DSL entries (`.dsl`) ++ escape entries (`.opaque`).
+        let dslTerms ← dslExprs.mapM (fun e => liftMacroM (elabEntryWith valueSub e))
+        let escTerms ← escEntries.mapM (fun (f, is) => do
+          `(ConstraintEntry.opaque $(← liftMacroM (FormatSpec.opaqueEnvClosure f is))))
+        let csep : Syntax.TSepArray `term "," := .ofElems (dslTerms ++ escTerms)
+        emitEngine (← `(def $cIdent : List ConstraintEntry := [$csep,*]))
+        -- SPEC `Constraints` Prop: DSL forms rendered readably ++ each escape as `f x y = true`
+        -- over the surface binders. A `value` reference renders as `<Name>.value <comps>`.
         let valSubR : Option (TSyntax `term) ← match veIdent? with
           | some _ =>
             let vId := mkIdentFrom name (name.getId ++ `value)
@@ -329,99 +427,213 @@ def elabFormatSpec : CommandElab := fun stx => do
               (valueCaps.map (fun c => ⟨(mkIdent (Name.mkSimple (FormatSpec.surfaceBinder c))).raw⟩)).toArray
             pure (some (← `($vId $vArgs*)))
           | none   => pure none
-        let rTerms ← exprs.mapM (fun e => liftMacroM (elabConstraintReadable valSubR e))
-        let body ← match rTerms.toList with
+        let dslRTerms ← dslExprs.mapM (fun e => liftMacroM (elabConstraintReadable valSubR e))
+        let escRTerms ← escEntries.mapM (fun (f, is) => do
+          let bArgs : Array (TSyntax `term) := is.map (fun i =>
+            ⟨(mkIdent (Name.mkSimple (FormatSpec.surfaceBinder i.getId.toString))).raw⟩)
+          `($f $bArgs* = true))
+        let allR := dslRTerms ++ escRTerms
+        let body ← match allR.toList with
           | []      => `(True)
           | x :: xs => xs.foldlM (fun acc p => `($acc ∧ $p)) x
-        -- capture params: constraints' own captures ∪ value's captures (if `value` used)
-        let usesValue := exprs.any (fun e => (FormatSpec.constraintUsesValue e))
-        let cCaps := (exprs.toList.flatMap FormatSpec.constraintCaptures
+        -- capture params: DSL captures ∪ escape captures ∪ value captures (if `value` used)
+        let usesValue := dslExprs.any (fun e => (FormatSpec.constraintUsesValue e))
+        let escCaps := escEntries.toList.flatMap (fun (_, is) => is.toList.map (·.getId.toString))
+        let cCaps := (dslExprs.toList.flatMap FormatSpec.constraintCaptures ++ escCaps
                         ++ (if usesValue then valueCaps else [])).eraseDups
         let cBinders : Array (TSyntax `ident) :=
           (cCaps.map (fun c => mkIdent (Name.mkSimple (FormatSpec.surfaceBinder c)))).toArray
         let cRIdent := mkIdentFrom name (name.getId ++ `Constraints)
-        emit (← `(def $cRIdent $[($cBinders : String)]* : Prop := $body))
+        emitSpec (← `(def $cRIdent $[($cBinders : String)]* : Prop := $body))
         constrCaps := some cCaps
-      | none =>
-        emitE (← `(def $cIdent : List ConstraintEntry := []))
-      -- Bundle the spec: `isWf` / `satisfiesConstraints` / `isAccepted` (design §16.1),
-      -- referring to the generated grammar + constraints.
-      -- RECONCILIATION GAP (TODO): the bundled `<Name>.isWf` below still uses the
-      -- `decode`-based interpreter (`FormatSpec.isWf grammar constraints`), whereas the
-      -- per-production `<Name>.isWf.<start>` is now the readable INLINED predicate. These
-      -- two well-formedness notions should be provably equal (inlined ≡ IsWfProd start ≡
-      -- interpreter), but that equivalence is not yet proved — so the bundle and the
-      -- inlined predicates coexist. Unifying them (bundle references the inlined start
-      -- predicate) + the equivalence proof is the next milestone.
-      -- ENGINE bundle (lowercase): interpreter-based, `decode`-backed. Elaborated always,
-      -- shown/written only with `internals`.
+      else
+        emitEngine (← `(def $cIdent : List ConstraintEntry := []))
+      -- ENGINE bundle (lowercase): the decode-backed interpreter predicates. The readable
+      -- surface `IsWf.<start>` is PROVEN equal to `FormatSpec.isWf` by `<Name>.IsWf_equiv`.
       let wfIdent  := mkIdentFrom name (name.getId ++ `isWf)
       let scIdent  := mkIdentFrom name (name.getId ++ `satisfiesConstraints)
-      let accIdent := mkIdentFrom name (name.getId ++ `isAccepted)
-      emitE (← `(abbrev $wfIdent  (s : String) : Prop := FormatSpec.isWf $grammarIdent $cIdent s))
-      emitE (← `(abbrev $scIdent  (s : String) : Prop := FormatSpec.satisfiesConstraints $grammarIdent $cIdent s))
-      emitE (← `(abbrev $accIdent (s : String) : Prop := $wfIdent s ∧ $scIdent s))
+      let accIdent := mkIdentFrom name (name.getId ++ `isValid)
+      emitEngine (← `(abbrev $wfIdent  (s : String) : Prop := FormatSpec.isWf $grammarIdent $cIdent s))
+      emitEngine (← `(abbrev $scIdent  (s : String) : Prop := FormatSpec.satisfiesConstraints $grammarIdent $cIdent s))
+      emitEngine (← `(abbrev $accIdent (s : String) : Prop := $wfIdent s ∧ $scIdent s))
       if let some veIdent := veIdent? then
         let cvIdent := mkIdentFrom name (name.getId ++ `computeValue)
-        emitE (← `(def $cvIdent (s : String) : Option Int :=
+        emitEngine (← `(def $cvIdent (s : String) : Option Int :=
                       FormatSpec.computeValue $grammarIdent $veIdent s))
-      -- SURFACE bundle (capitalized): the reader-facing spec, engine-free except for the
-      -- `grammar` + library `decode` (the irreducible String→components bridge).
-      --   `SatisfiesConstraints (s : String)`: decode `s`, then apply the surface
-      --     `Constraints` to the extracted components (`True` if no constraints section).
-      --   `IsAccepted (s : String) := IsWf.<start> s ∧ SatisfiesConstraints s`.
+      -- SPEC bundle (capitalized): the citable validity predicate, engine-free except for
+      -- the `grammar` + library `decode` (the irreducible String→components bridge). Matches
+      -- Cedar's wording — "a string is VALID iff it satisfies the grammar and constraints":
+      --   `SatisfiesConstraints (s)`: decode `s`, then apply the readable `Constraints` to
+      --     the extracted components (`True` if no constraints section).
+      --   `IsValid (s) := IsWf.<start> s ∧ SatisfiesConstraints s`.
       let startName : Name := (gval.prods.head?.map (·.name.toName)).getD name.getId
       let startIsWf := mkIdentFrom name (name.getId ++ `IsWf ++ startName)
       let scSurf := mkIdentFrom name (name.getId ++ `SatisfiesConstraints)
-      let accSurf := mkIdentFrom name (name.getId ++ `IsAccepted)
+      let accSurf := mkIdentFrom name (name.getId ++ `IsValid)
+      -- `SatisfiesConstraints s`: decode `s` and apply the readable `Constraints` to the
+      -- extracted component strings (`True` if there is no constraints section). All forms,
+      -- including `opaque*` escapes (now string-param), live uniformly inside `Constraints`.
       match constrCaps with
       | none =>
-        -- no constraints ⟹ trivially satisfied
-        emit (← `(abbrev $scSurf (s : String) : Prop := True))
+        emitSpec (← `(abbrev $scSurf (s : String) : Prop := True))
       | some caps =>
-        -- decode `s`, extract each constraint component as a string, feed the surface
-        -- `Constraints`. `FormatSpec.envOf g s c` gives capture `c`'s string (or "").
         let cRIdent := mkIdentFrom name (name.getId ++ `Constraints)
         let args : Array (TSyntax `term) ← caps.toArray.mapM (fun c =>
-          `((FormatSpec.envOf $grammarIdent s $(Syntax.mkStrLit c)).getD ""))
-        emit (← `(def $scSurf (s : String) : Prop := $cRIdent $args*))
-      emit (← `(abbrev $accSurf (s : String) : Prop := $startIsWf s ∧ $scSurf s))
-      -- Contract obligations: when a `parser <p> projection <π>` clause is present, emit
-      -- `<Name>.sound` / `.complete` / `.reject` as `sorry`d theorems relating the
-      -- external parser to the generated spec (design §16.1). Requires a value expression
-      -- (for `sound`/`complete`); `reject` needs only the spec.
+          `(FormatSpec.component $grammarIdent s $(Syntax.mkStrLit c)))
+        emitSpec (← `(def $scSurf (s : String) : Prop := $cRIdent $args*))
+      emitSpec (← `(abbrev $accSurf (s : String) : Prop := $startIsWf s ∧ $scSurf s))
+      -- Soundness/decidability (SOUNDNESS section): the surface⟺engine `IsWf_equiv` + the
+      -- derived `Decidable` instances. Runs after the engine bundle + surface `IsValid`.
+      emitReconcile constrCaps.isSome veIdent?.isSome
+      -- Contract obligations (CONTRACTS section): with a `parser <p> projection <π>` clause,
+      -- emit `<Name>.sound` / `.complete` / `.reject` as `sorry`d theorems (design §16.1),
+      -- stated over the SURFACE `<Name>.IsValid` (and, for sound/complete, the surface
+      -- value function `<Name>.computeValue`) — the human-facing "the real parser accepts
+      -- iff the readable spec is valid, with matching value". Discharged (later) by bridging
+      -- `IsValid` to `decode` via `IsWf_equiv`; `sound`/`complete` need a value expr.
+      -- These reference the EXTERNAL parser, so the written file re-imports the caller module.
       if let some prStx := pr then
         if let `(fmtParser| parser $parseT:term projection $projT:term) := prStx then
           let rejIdent := mkIdentFrom name (name.getId ++ `reject)
-          emit (← `(theorem $rejIdent :
-              RejectStmt $grammarIdent $cIdent $parseT := by sorry))
-          if let some veIdent := veIdent? then
+          emitContract (← `(theorem $rejIdent :
+              RejectStmt $accSurf $parseT := by sorry))
+          if veIdent?.isSome then
+            let cvIdent := mkIdentFrom name (name.getId ++ `computeValue)
             let soundIdent := mkIdentFrom name (name.getId ++ `sound)
             let compIdent  := mkIdentFrom name (name.getId ++ `complete)
-            emit (← `(theorem $soundIdent :
-                SoundStmt $grammarIdent $cIdent $veIdent $parseT $projT := by sorry))
-            emit (← `(theorem $compIdent :
-                CompleteStmt $grammarIdent $cIdent $veIdent $parseT $projT := by sorry))
-      -- If a `to "path"` clause was given, write the collected declarations to that file.
+            emitContract (← `(theorem $soundIdent :
+                SoundStmt $accSurf $cvIdent $parseT $projT := by sorry))
+            emitContract (← `(theorem $compIdent :
+                CompleteStmt $accSurf $cvIdent $parseT $projT := by sorry))
+      -- WRITE (optional `to "<dir>"` clause): emit the single generated module
+      -- `<dir>/spec.lean` (dir default `.`, must pre-exist). Four `═══`-banner sections in
+      -- dependency order: spec / engine / soundness / contracts. Single file because
+      -- everything the reader cares about (`IsWf.*`, the `Decidable` instance, the surface
+      -- contracts) transitively needs the proof + interpreter, so any split only fights a
+      -- dependency cycle. The contracts section names the EXTERNAL parser, so the generated
+      -- file re-imports the caller module (`getMainModule`) to bring it into scope.
       if let some toStx := to? then
-        if let `(fmtTo| to $pathStx:str) := toStx then
-          let path := pathStx.getString
-          -- Drop-in header: imports + `open` so the file compiles on its own.
+        if let `(fmtTo| to $dirStx:str) := toStx then
+          let nm := name.getId.toString
+          let dir := dirStx.getString
+          let specDecls ← bufS.get; let engineDecls ← bufE.get
+          let soundDecls ← bufP.get; let contractDecls ← bufC.get
+          let callerImport := (← getMainModule).toString
+          let callerNamespace := (← getCurrNamespace).toString
+          -- Header. `unusedSimpArgs`/`unusedVariables` off — the uniform proof closer
+          -- over-provisions simp lemmas by design, and some defs keep a uniform signature
+          -- with an unused parameter (`SatisfiesConstraints (s) := True`); neither is a defect.
+          -- Import (and `open`) the caller module when the generated file references
+          -- caller-local symbols: the `parser`-clause contracts (external parser/projection)
+          -- OR any `opaque` escape check (a caller-defined `String → … → Bool`, e.g.
+          -- Datetime's `dayBound`). The `open` lets those unqualified idents resolve.
+          let needsCaller := !contractDecls.isEmpty || hasOpaque || hasValueEsc
           let header :=
-            s!"-- Generated by FormatSpec from `format_spec {name.getId}`. Do not edit by hand.\n\
+            s!"-- Generated by FormatSpec from `format_spec {nm}`. Do not edit by hand.\n\
                \nimport FormatSpec.Denote\n\
                import FormatSpec.Value\n\
                import FormatSpec.Constraint\n\
                import FormatSpec.Assemble\n\
-               \nopen FormatSpec\n\n"
-          let body := String.intercalate "\n\n" (← buf.get).toList
+               import FormatSpec.Reconcile\n\
+               {if needsCaller then s!"import {callerImport}\n" else ""}\
+               \nopen FormatSpec\n\
+               {if needsCaller then s!"open {callerNamespace}\n" else ""}\
+               \nset_option linter.unusedSimpArgs false\n\
+               set_option linter.unusedVariables false\n\n"
+          let specBanner := "-- ═══════════════════════════════ spec ═══════════════════════════════\n\
+            -- The reader-facing specification: the grammar, the readable per-production\n\
+            -- well-formedness predicates `IsWf.*`, the `value` function, the `Constraints`,\n\
+            -- and the acceptance predicates `SatisfiesConstraints` / `IsValid` (a string is\n\
+            -- VALID iff it satisfies the grammar and constraints — Cedar's wording)."
+          let engineBanner := "-- ══════════════════════════════ engine ══════════════════════════════\n\
+            -- The analyzable/executable machinery behind the spec: the deep-embedded\n\
+            -- value/constraint ASTs and the decode-backed interpreter bundle (`isWf`,\n\
+            -- `isValid`, `computeValue`)."
+          let soundBanner := "-- ════════════════════════════ soundness ════════════════════════════\n\
+            -- The guarantees tying the two together: the surface⟺engine equivalence\n\
+            -- `IsWf_equiv` (+ its `Internal.matchesRef.*` lemmas) and the derived\n\
+            -- `DecidablePred IsWf.*` instance (an executable validator, via the interpreter)."
+          let contractBanner := "-- ═══════════════════════════ contracts ═══════════════════════════\n\
+            -- The parser-correctness obligations against the external parser, stated over the\n\
+            -- SURFACE `IsValid`/`computeValue` (`sorry`d — the proof-facing deliverable,\n\
+            -- discharged later by bridging `IsValid` to `decode` via `IsWf_equiv`)."
+          -- Assemble the present sections (skip empty ones), joined by blank lines.
+          let sections : List (String × Array String) :=
+            [(specBanner, specDecls), (engineBanner, engineDecls),
+             (soundBanner, soundDecls), (contractBanner, contractDecls)]
+          let body := String.intercalate "\n\n"
+            (sections.filterMap (fun (banner, decls) =>
+              if decls.isEmpty then none
+              else some (banner ++ "\n\n" ++ String.intercalate "\n\n" decls.toList)))
+          let path := dir ++ "/spec.lean"
           IO.FS.writeFile path (header ++ body ++ "\n")
-          logInfo m!"FormatSpec: wrote {(← buf.get).size} declarations to {path}"
-          -- CAVEAT: this write is an elaboration side-effect. `lake` *replays* cached
-          -- modules without re-running IO, so the file only refreshes on a genuine cache
-          -- miss — editing the generator alone may NOT rewrite the file. Regenerate
-          -- deliberately (touch/edit this module, or `lake clean`) after generator changes.
-          -- A robust codegen step would live in a separate `lake exe`, not elaboration.
+          logInfo m!"FormatSpec: wrote {nm} → {path} ({specDecls.size} spec + \
+                     {engineDecls.size} engine + {soundDecls.size} soundness + \
+                     {contractDecls.size} contract decls)"
+          -- CAVEAT: this write is an elaboration side-effect. `lake` replays cached modules
+          -- without re-running IO, so the file refreshes only on a genuine cache miss — after
+          -- editing the generator, force a rebuild (delete oleans or `lake clean`).
   | _ => throwUnsupportedSyntax
+
+/-! ## `#format_spec_help` — discoverable DSL vocabulary
+
+Prints the full grammar / value / constraint DSL vocabulary so a user can see what is
+expressible *before* reaching for the raw-Lean `opaque` escape hatch. The escape is the
+LAST resort (it makes the value/constraint opaque to the analysis — no auto-affinity, and
+its correctness is on the author); this reference exists so that fallback is a deliberate
+choice, not a default taken for lack of knowing the vocabulary. -/
+syntax (name := formatSpecHelpCmd) "#format_spec_help" : command
+
+@[command_elab formatSpecHelpCmd]
+def elabFormatSpecHelp : CommandElab := fun _ => do
+  let help : String := "\
+FormatSpec DSL — the vocabulary of `format_spec <Name> where …`.
+Prefer these forms; the `opaque` escapes are a LAST resort (they hide the value/constraint
+from analysis and put correctness on you).
+
+── grammar ──  (required; a flat non-recursive DAG of `::=` productions)
+  Name ::= item item … | alt | …     one or more `|`-separated alternatives
+  item forms:
+    \"lit\"                            a string literal (separators, unit tags)
+    Nonterminal                      a reference to another production (the DAG edge)
+    digit<len> / hexDigit<len>       a terminal token run
+    [ item ]                         optional
+  <len> suffix:  +  (one-or-more)   {n}  (exactly n)   {lo,hi}  (between)
+
+── value ──  (optional; `Int`-valued, over the captured components)
+  literals:  123        Int64.MAX        Int64.MIN
+  readers on a capture X:
+    nat X    unsigned decimal value        int X    signed (leading '-')
+    len X    character length              sign X   -1 if X starts '-', else +1
+  arithmetic:  a + b    a - b    a * b    a ^ b    ( … )    (prec: ^ > * > +/-)
+
+── value' ──  (optional ESCAPE, for values outside the DSL, e.g. calendar math)
+  value' f X Y …   with  def f (x y … : String) : Int := …    (`f` applied to captures)
+
+── constraints ──  (optional; one per line; may refer to `value`)
+  string (fold into IsWf):
+    noLeadingZero X        X has no leading zero unless it is exactly \"0\"
+    X = \"lit\"              X's matched string equals a literal
+  cardinality over presence (how many of the listed captures are nonempty; SAT-style):
+    nonempty X             X is present            (= atLeast 1 {X})
+    atLeast k {X, Y, …}    ≥ k of the capture set present
+    atMost  k {X, Y, …}    ≤ k present
+    exactly k {X, Y, …}    exactly k present
+  value (fold into SatisfiesConstraints):
+    a ≤ b     a < b     a == b        comparisons of value expressions
+    e ∈ [lo, hi]                      closed interval (⟺ lo ≤ e ∧ e ≤ hi)
+  the word `value` inside a constraint = the elaborated value function.
+
+── constraints' ──  (optional ESCAPE, for constraints outside the DSL, e.g. calendar rules)
+  one per line:  f X Y …   with  def f (x y … : String) : Bool := …   (`f` applied to captures)
+
+── parser ──  (optional)  parser <parse> projection <π>   emits the contract obligations.
+── to ──      (optional)  to \"<dir>\"                        writes <dir>/spec.lean.
+
+Section order:  grammar · value · value' · constraints · constraints' · parser · to.
+When a format needs something not listed here, that is a signal to either (a) use the
+matching escape section (`value'` / `constraints'`) for that one piece, or (b) request the
+vocabulary be extended — not to hand-write the whole spec in Lean."
+  logInfo help
 
 end FormatSpec

@@ -114,6 +114,14 @@ def intOf  (s : String) : Int := if s == "" then 0 else readInt s
 def lenOf  (s : String) : Int := (s.length : Int)
 def signOf (s : String) : Int := if s.startsWith "-" then -1 else 1
 
+/-- Count how many of the captured component strings are *present* (nonempty). The base of
+    the cardinality constraints (`atLeast`/`atMost`/`exactlyK` over a set of optional
+    captures), matching the SAT-community "≥ k of these hold" over the presence booleans:
+    each capture contributes 1 iff its matched string is nonempty (absent optional ⟹ `""` ⟹
+    0). `presentCount ["1d", "", "3m"] = 2`. -/
+def presentCount (ss : List String) : Nat :=
+  ss.foldl (fun acc s => if s == "" then acc else acc + 1) 0
+
 /-- Denotation of a value expression against a capture environment — this IS the
     translation to a Lean computation, defined via the readable field readers above. -/
 def ValExpr.eval (env : Env) : ValExpr → Int
@@ -186,10 +194,27 @@ partial def elabValExpr (e : TSyntax `valExpr) : MacroM (TSyntax `term) :=
 /-- `val% <formula>` : a `ValExpr` value from math-style syntax. -/
 macro "val% " e:valExpr : term => elabValExpr e
 
-/-- De-capitalize a capture name into its surface parameter binder (`Integer` →
-    `integer`), so the readable value/constraints refer to components by lowercase name. -/
+/-- De-capitalize a capture name into its surface parameter binder, so the readable
+    value/constraints refer to components by lowercase name. Two cases, so both all-caps
+    acronyms and CamelCase read well:
+    * an ALL-UPPERCASE name (an acronym like `YYYY`, `MM`, `SSS`) → fully lowercased
+      (`YYYY` → `yyyy`), avoiding the ugly `yYYY`;
+    * otherwise only the first character (`Integer` → `integer`, `DDays` → `dDays`),
+      preserving internal capitals of CamelCase names.
+    A QUALIFIED capture (`Time.hh`, from a nonterminal reused in several parents) has its
+    `.` replaced by `_` per segment so the binder is one valid identifier (`Time.hh` →
+    `time_hh`). Note: `MM` → `mm` can coincide with a sibling `mm` capture's binder if both
+    are referenced *bare* in one function; the datetime grammar avoids this by referencing
+    the reused `mm` only qualified (`Time.mm`/`Offset.mm`). -/
 def surfaceBinder (capture : String) : String :=
-  match capture.toList with | [] => capture | c :: cs => String.ofList (c.toLower :: cs)
+  -- de-capitalize one dot-free segment: fully lower if all-uppercase, else first char only
+  let seg (s : String) : String :=
+    match s.toList with
+    | []      => s
+    | c :: cs =>
+      if (c :: cs).all (fun ch => !ch.isLower) then s.toLower   -- all-uppercase acronym
+      else String.ofList (c.toLower :: cs)                       -- CamelCase: first char only
+  String.intercalate "_" ((capture.splitOn ".").map seg)
 
 /-- Translate a `valExpr` into a READABLE `Int` term over the captured component STRINGS
     (via `natOf`/`intOf`/`lenOf`/`signOf` applied to lowercase-named binders), NOT over an

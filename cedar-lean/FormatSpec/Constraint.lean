@@ -39,6 +39,15 @@ Scope of this increment: the `Constraint` AST + its denotation + the classifier
 
 namespace FormatSpec
 
+/-- A cardinality operator over the presence of a set of captures — the SAT-community
+    "≥ k / ≤ k / = k of these hold" over the presence booleans (a capture is *present* iff
+    its matched string is nonempty). -/
+inductive CardOp where
+  | atLeast   -- `≥ k` present
+  | atMost    -- `≤ k` present
+  | exactlyK  -- `= k` present  (`exactly` clashes with `LenSpec.exactly` naming; use `exactlyK`)
+  deriving Repr, Inhabited, DecidableEq
+
 /-- A constraint predicate over the capture environment. Two syntactic flavors:
     *string* predicates (over one capture's matched substring) and *value* predicates
     (comparisons of `ValExpr` value expressions). -/
@@ -48,6 +57,12 @@ inductive Constraint where
   | noLeadingZero (field : String)
   /-- `X = <lit>` — capture `X`'s matched string equals a literal. STRING. -/
   | strEq (field : String) (lit : String)
+  /-- Cardinality over presence: the number of the given captures that are *present*
+      (nonempty) is `≥/≤/= k` (per `op`). STRING (no computed value). ASSERTS presence, so an
+      absent/empty capture contributes 0. Surface forms use SET braces: `atLeast k {Xs}`,
+      `atMost k {Xs}`, `exactly k {Xs}`; `nonempty X` = `atLeast 1 {X}`. The generalization of
+      the "at least one component present" rule over an all-optional run (Duration/IPAddr). -/
+  | card (op : CardOp) (k : Nat) (fields : List String)
   /-- `a ≤ b` — value comparison of two value expressions (e.g. `nat X ≤ 255`). VALUE. -/
   | le (a b : ValExpr)
   /-- `a < b`. VALUE. -/
@@ -63,6 +78,7 @@ inductive Constraint where
 def Constraint.isValueDependent : Constraint → Bool
   | .noLeadingZero _ => false
   | .strEq _ _       => false
+  | .card _ _ _      => false
   | .le _ _          => true
   | .lt _ _          => true
   | .eq _ _          => true
@@ -74,21 +90,30 @@ def Constraint.isValueDependent : Constraint → Bool
     `ValExpr.eval`. -/
 def Constraint.eval (env : Env) : Constraint → Prop
   | .noLeadingZero f =>
-      match env f with
-      | some s => s.startsWith "0" → s = "0"
-      | none   => True
+      -- Phrased over `(env f).getD ""` (not `match … none => True`) so it is DEFEQ to the
+      -- surface rendering `(x.startsWith "0" → x = "0")`. Equivalent on an absent capture:
+      -- `"".startsWith "0"` is `false`, so the implication is vacuously `True` either way.
+      (((env f).getD "").startsWith "0" = true → (env f).getD "" = "0")
   | .strEq f l =>
       match env f with
       | some s => s = l
       | none   => True
+  | .card op k fields =>
+      -- Count present (nonempty) captures; absent optional ⟹ "" ⟹ contributes 0.
+      let n := presentCount (fields.map (fun f => (env f).getD ""))
+      match op with
+      | .atLeast  => k ≤ n
+      | .atMost   => n ≤ k
+      | .exactlyK => n = k
   | .le a b => a.eval env ≤ b.eval env
   | .lt a b => a.eval env < b.eval env
   | .eq a b => a.eval env = b.eval env
   | .and a b => a.eval env ∧ b.eval env
 
 instance instDecidableEval (env : Env) : (c : Constraint) → Decidable (c.eval env)
-  | .noLeadingZero f => by unfold Constraint.eval; split <;> infer_instance
+  | .noLeadingZero f => by unfold Constraint.eval; infer_instance
   | .strEq f l       => by unfold Constraint.eval; split <;> infer_instance
+  | .card op k fs    => by unfold Constraint.eval; split <;> infer_instance
   | .le a b          => by unfold Constraint.eval; infer_instance
   | .lt a b          => by unfold Constraint.eval; infer_instance
   | .eq a b          => by unfold Constraint.eval; infer_instance
@@ -114,6 +139,10 @@ instance instDecidableWfPart (env : Env) : (c : Constraint) → Decidable (c.wfP
       by unfold Constraint.wfPart; infer_instance
   | .noLeadingZero f => by unfold Constraint.wfPart; split <;> infer_instance
   | .strEq f l       => by unfold Constraint.wfPart; split <;> infer_instance
+  | .card op k fs    => by
+      unfold Constraint.wfPart; split
+      · infer_instance
+      · unfold Constraint.eval; split <;> infer_instance
   | .le a b          => by unfold Constraint.wfPart; split <;> infer_instance
   | .lt a b          => by unfold Constraint.wfPart; split <;> infer_instance
   | .eq a b          => by unfold Constraint.wfPart; split <;> infer_instance
@@ -125,6 +154,7 @@ instance instDecidableValPart (env : Env) : (c : Constraint) → Decidable (c.va
       by unfold Constraint.valPart; infer_instance
   | .noLeadingZero f => by unfold Constraint.valPart; split <;> infer_instance
   | .strEq f l       => by unfold Constraint.valPart; split <;> infer_instance
+  | .card op k fs    => by unfold Constraint.valPart; split <;> infer_instance
   | .le a b          => by unfold Constraint.valPart; split <;> infer_instance
   | .lt a b          => by unfold Constraint.valPart; split <;> infer_instance
   | .eq a b          => by unfold Constraint.valPart; split <;> infer_instance
@@ -137,34 +167,36 @@ instance instDecidableValPart (env : Env) : (c : Constraint) → Decidable (c.va
 inductive ConstraintEntry where
   /-- A DSL constraint (analyzable). -/
   | dsl (c : Constraint)
-  /-- Opaque escape: an arbitrary boolean check on the environment (carrying its own
-      decision procedure, so no `DecidablePred` plumbing). `isVal` declares whether it
-      folds into `SatisfiesConstraints` (true) or `IsWf` (false), since it cannot be
-      inferred from an opaque term. -/
-  | opaque (isVal : Bool) (check : Env → Bool)
+  /-- Opaque escape (`opaqueConstraints`): an arbitrary boolean check on the environment,
+      carrying its own decision procedure (so no `DecidablePred` plumbing), for constraints
+      outside the DSL vocabulary. Always folds into the value side (`valPart`); the earlier
+      `IsWf`-vs-value distinction was dropped because for the combined acceptance predicate
+      `wfPart ∧ valPart` an opaque entry contributes exactly `check` either way, so the
+      classification never affected the result. -/
+  | opaque (check : Env → Bool)
 
-/-- Value-dependence of an entry (opaque uses its declared `isVal`). -/
+/-- Value-dependence of an entry (opaque escapes fold into the value side). -/
 def ConstraintEntry.isValueDependent : ConstraintEntry → Bool
   | .dsl c        => c.isValueDependent
-  | .opaque b _   => b
+  | .opaque _     => true
 
 /-- `IsWf`-side contribution of an entry. -/
 def ConstraintEntry.wfPart (env : Env) : ConstraintEntry → Prop
-  | .dsl c              => c.wfPart env
-  | .opaque isVal check => if isVal then True else check env = true
+  | .dsl c       => c.wfPart env
+  | .opaque _    => True
 
 /-- `SatisfiesConstraints`-side contribution of an entry. -/
 def ConstraintEntry.valPart (env : Env) : ConstraintEntry → Prop
-  | .dsl c              => c.valPart env
-  | .opaque isVal check => if isVal then check env = true else True
+  | .dsl c       => c.valPart env
+  | .opaque check => check env = true
 
 instance (env : Env) : (e : ConstraintEntry) → Decidable (e.wfPart env)
   | .dsl c        => by unfold ConstraintEntry.wfPart; infer_instance
-  | .opaque _ _   => by unfold ConstraintEntry.wfPart; split <;> infer_instance
+  | .opaque _     => by unfold ConstraintEntry.wfPart; infer_instance
 
 instance (env : Env) : (e : ConstraintEntry) → Decidable (e.valPart env)
   | .dsl c        => by unfold ConstraintEntry.valPart; infer_instance
-  | .opaque _ _   => by unfold ConstraintEntry.valPart; split <;> infer_instance
+  | .opaque _     => by unfold ConstraintEntry.valPart; infer_instance
 
 /-! ## Surface syntax → `Constraint`
 
@@ -175,6 +207,12 @@ open Lean
 
 declare_syntax_cat constraintExpr
 syntax "noLeadingZero " ident            : constraintExpr
+-- Cardinality over presence (SAT-style): how many of a SET of captures are present. Braces
+-- `{X, Y, …}` signal it is a set (not an argument list). `nonempty X` = sugar `atLeast 1 {X}`.
+syntax "nonempty " ident                 : constraintExpr
+syntax "atLeast " num " {" ident,+ "}"   : constraintExpr
+syntax "atMost "  num " {" ident,+ "}"   : constraintExpr
+syntax "exactly " num " {" ident,+ "}"   : constraintExpr
 syntax ident " = " str                   : constraintExpr   -- string equality
 syntax valExpr " ≤ " valExpr             : constraintExpr
 syntax valExpr " < " valExpr             : constraintExpr
@@ -183,11 +221,20 @@ syntax valExpr " == " valExpr            : constraintExpr   -- value equality (`
 -- Matches the doc's `value ∈ [Int64.MIN, Int64.MAX]`. (Sets/half-open intervals are out
 -- of scope — use the `opaque` escape for those.)
 syntax valExpr " ∈ " "[" valExpr ", " valExpr "]" : constraintExpr
--- ESCAPE HATCH (design note §16.7): an arbitrary `Env → Bool` check outside the DSL
--- vocabulary. `opaqueWf`   → folds into `IsWf` (string-only classification);
---                `opaqueVal` → folds into `SatisfiesConstraints` (value classification).
-syntax "opaqueWf "  term:max : constraintExpr
-syntax "opaqueVal " term:max : constraintExpr
+-- NOTE: the ESCAPE HATCH for constraints outside the DSL vocabulary is NOT a `constraintExpr`
+-- form — it is the separate `constraints'` section of `format_spec` (see `FormatSpec.Syntax`),
+-- whose entries are raw-Lean `f X Y …` applications built via `opaqueEnvClosure` below.
+
+/-- The comma-separated capture names of a cardinality constraint's `[X, Y, …]` list, as a
+    `term` sep-array of quoted strings (for splicing into a `[…]` `List String` literal). -/
+private def cardFieldList (is : Syntax.TSepArray `ident ",") : Syntax.TSepArray `term "," :=
+  .ofElems (is.getElems.map (fun i => Syntax.mkStrLit i.getId.toString))
+
+/-- The same capture names as `cardFieldList` but as surface-binder *identifiers* (`Days` →
+    `days`), for the READABLE `presentCount [days, hours, …]` rendering. -/
+private def cardBinderList (is : Syntax.TSepArray `ident ",") : Syntax.TSepArray `term "," :=
+  .ofElems (is.getElems.map (fun i =>
+    ⟨(mkIdent (Name.mkSimple (surfaceBinder i.getId.toString))).raw⟩))
 
 /-- Translate a `constraintExpr` into a `Constraint` term (DSL forms only). `valueSub`,
     if provided, is substituted for a `value` reference in the arithmetic sides. -/
@@ -195,6 +242,14 @@ def elabConstraintWith (valueSub : Option (TSyntax `term)) :
     TSyntax `constraintExpr → MacroM (TSyntax `term)
   | `(constraintExpr| noLeadingZero $i:ident) =>
       `(Constraint.noLeadingZero $(quote i.getId.toString))
+  | `(constraintExpr| nonempty $i:ident) =>
+      `(Constraint.card CardOp.atLeast 1 [$(quote i.getId.toString)])
+  | `(constraintExpr| atLeast $k:num { $is,* }) =>
+      `(Constraint.card CardOp.atLeast $k [$(cardFieldList is),*])
+  | `(constraintExpr| atMost $k:num { $is,* }) =>
+      `(Constraint.card CardOp.atMost $k [$(cardFieldList is),*])
+  | `(constraintExpr| exactly $k:num { $is,* }) =>
+      `(Constraint.card CardOp.exactlyK $k [$(cardFieldList is),*])
   | `(constraintExpr| $i:ident = $l:str) =>
       `(Constraint.strEq $(quote i.getId.toString) $l)
   | `(constraintExpr| $a:valExpr ≤ $b:valExpr) => do
@@ -216,13 +271,22 @@ def elabConstraintWith (valueSub : Option (TSyntax `term)) :
 def elabConstraint (c : TSyntax `constraintExpr) : MacroM (TSyntax `term) :=
   elabConstraintWith none c
 
-/-- Translate a `constraintExpr` into a `ConstraintEntry` term: DSL forms wrap in
-    `.dsl`, `opaqueWf`/`opaqueVal` produce the escape-hatch `.opaque` entry. `valueSub`
-    threads the value expression for `value` references. -/
+/-- Build the engine's `Env → Bool` closure from the author's function `f` applied to
+    capture names `is`: `fun env => f ((env "X").getD "") ((env "Y").getD "") …`. The
+    `envOf`/`getD ""` plumbing lives HERE, so the author's `f` sees only plain component
+    strings — the surface `constraints'` entry `f X Y` reads as an ordinary Lean application.
+    Used by the `constraints'` escape section (see `FormatSpec.Syntax`). -/
+def opaqueEnvClosure (f : TSyntax `ident) (is : Array (TSyntax `ident)) :
+    MacroM (TSyntax `term) := do
+  let args : Array (TSyntax `term) ← is.mapM (fun i =>
+    `(((env : Env) $(Syntax.mkStrLit i.getId.toString)).getD ""))
+  `(fun env : Env => $f $args*)
+
+/-- Translate a `constraintExpr` into a `ConstraintEntry` term (all DSL forms wrap in
+    `.dsl`; the raw-Lean escape lives in the separate `constraints'` section, not here).
+    `valueSub` threads `value` references. -/
 def elabEntryWith (valueSub : Option (TSyntax `term)) :
     TSyntax `constraintExpr → MacroM (TSyntax `term)
-  | `(constraintExpr| opaqueWf $t:term)  => `(ConstraintEntry.opaque false $t)
-  | `(constraintExpr| opaqueVal $t:term) => `(ConstraintEntry.opaque true $t)
   | c => do `(ConstraintEntry.dsl $(← elabConstraintWith valueSub c))
 
 /-- `elabEntry` with no `value` substitution. -/
@@ -239,6 +303,15 @@ def elabConstraintReadable (valueSub : Option (TSyntax `term)) :
   | `(constraintExpr| noLeadingZero $i:ident) =>
       let b := mkIdent (Name.mkSimple (surfaceBinder i.getId.toString))
       `(($b).startsWith "0" → $b = "0")
+  | `(constraintExpr| nonempty $i:ident) =>
+      let b := mkIdent (Name.mkSimple (surfaceBinder i.getId.toString))
+      `($b ≠ "")
+  | `(constraintExpr| atLeast $k:num { $is,* }) =>
+      `(presentCount [$(cardBinderList is),*] ≥ $k)
+  | `(constraintExpr| atMost $k:num { $is,* }) =>
+      `(presentCount [$(cardBinderList is),*] ≤ $k)
+  | `(constraintExpr| exactly $k:num { $is,* }) =>
+      `(presentCount [$(cardBinderList is),*] = $k)
   | `(constraintExpr| $i:ident = $l:str) =>
       let b := mkIdent (Name.mkSimple (surfaceBinder i.getId.toString))
       `($b = $l)
@@ -277,6 +350,10 @@ def constraintUsesValue : TSyntax `constraintExpr → Bool
 /-- Capture names referenced by a `constraintExpr` (for surface parameter binders). -/
 def constraintCaptures : TSyntax `constraintExpr → List String
   | `(constraintExpr| noLeadingZero $i:ident) => [i.getId.toString]
+  | `(constraintExpr| nonempty $i:ident)      => [i.getId.toString]
+  | `(constraintExpr| atLeast $_:num { $is,* }) => (is.getElems.map (·.getId.toString)).toList
+  | `(constraintExpr| atMost $_:num { $is,* })  => (is.getElems.map (·.getId.toString)).toList
+  | `(constraintExpr| exactly $_:num { $is,* }) => (is.getElems.map (·.getId.toString)).toList
   | `(constraintExpr| $i:ident = $_:str)      => [i.getId.toString]
   | `(constraintExpr| $a:valExpr ≤ $b:valExpr) => (valExprCaptures a ++ valExprCaptures b).eraseDups
   | `(constraintExpr| $a:valExpr < $b:valExpr) => (valExprCaptures a ++ valExprCaptures b).eraseDups

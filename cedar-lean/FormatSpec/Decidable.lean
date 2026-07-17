@@ -44,9 +44,12 @@ complete and `decide (IsWf g s)` becomes the validator used in demos/tests.
 
 namespace FormatSpec
 
-/-- Boolean check that a string is a valid terminal token run. -/
+/-- Boolean check that a string is a valid terminal token run — just `decide` on the single
+    `matchesTerm` predicate (which owns the digit/length logic), rather than a re-implemented
+    char loop. This shares the leaf check across the recognizer and (via `matchesTerm`) the
+    decoder, so the token semantics lives in exactly one place. -/
 def recognizeTerm (tok : TokClass) (ls : LenSpec) (s : String) : Bool :=
-  decide (ls.sat s.length) && s.toList.all (fun c => decide (tok.mem c))
+  decide (matchesTerm tok ls s)
 
 mutual
 
@@ -109,12 +112,11 @@ theorem exists_append_iff_any_split (s : String) (P : String → String → Bool
   · rintro ⟨i, _, hP⟩
     exact ⟨_, _, str_split s i, hP⟩
 
-/-- Terminal correspondence: `recognizeTerm` agrees with `matchesTerm`. -/
+/-- Terminal correspondence: `recognizeTerm` agrees with `matchesTerm` — now immediate,
+    since `recognizeTerm = decide (matchesTerm …)`. -/
 theorem term_corr (tok : TokClass) (ls : LenSpec) (s : String) :
     recognizeTerm tok ls s = true ↔ matchesTerm tok ls s := by
-  simp only [recognizeTerm, matchesTerm, TokClass.all, Bool.and_eq_true,
-    decide_eq_true_eq, List.all_eq_true, decide_eq_true_eq]
-  exact ⟨fun ⟨h1, h2⟩ => ⟨h2, h1⟩, fun ⟨h1, h2⟩ => ⟨h2, h1⟩⟩
+  simp only [recognizeTerm, decide_eq_true_eq]
 
 /-- Sequence correspondence, GIVEN the symbol correspondence at the same fuel. By
     structural induction on the sequence; the split-point search collapses to the

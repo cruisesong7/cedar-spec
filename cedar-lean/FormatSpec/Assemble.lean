@@ -49,6 +49,13 @@ def envOf (g : Grammar) (s : String) : Env :=
   | some m => m.toEnv
   | none   => fun _ => none
 
+/-- The matched substring of capture `c` in `s`, as a plain `String` — `""` if the capture
+    is absent (an omitted optional) or `s` is not well-formed. This is the READABLE
+    component reader the generated surface `SatisfiesConstraints` uses, so the spec never
+    mentions the internal `Env`/`Option`/`getD` plumbing: `component g s "Integer"` instead
+    of `(envOf g s "Integer").getD ""`. Definitionally the latter, so no proof gap. -/
+def component (g : Grammar) (s : String) (c : String) : String := (envOf g s c).getD ""
+
 /-- Well-formedness: the grammar recognizes `s` AND every string-only constraint
     (`wfPart`) holds on its capture environment. -/
 def isWf (g : Grammar) (cs : List ConstraintEntry) (s : String) : Prop :=
@@ -76,30 +83,37 @@ The statements of the parser-correctness theorems (design note §16.1). They rel
 projection `π : α → Int` that reads the parsed value's `Int` denotation back out (for a
 scalar type `α`; e.g. a `Decimal` projects to its stored `Int`).
 
+**Stated over the SURFACE spec** (not the engine bundle): the acceptance predicate is
+passed as an abstract `accepted : String → Prop` and the value function as
+`value : String → Option Int`. The generated command instantiates these with the READABLE
+`<Name>.IsValid` and `<Name>.computeValue` — so the human-facing contract says exactly
+"the real parser accepts iff the readable spec is valid, with matching value". The proof is
+still discharged operationally by bridging the surface `IsValid` to `decode` via
+`<Name>.IsWf_equiv` (the surface `SatisfiesConstraints` is already decode-based); i.e. the
+statement is surface-level, the proof drops to the engine where it is tractable.
+
 These are the theorem *statements* the command emits as `sorry`d obligations — the
-proof-facing deliverable the user (or a later automation pass) discharges. They are NOT
-proved here; they are parameterized over an arbitrary `parse`/`π`, so there is nothing to
-prove generically (the content is per-parser). -/
+proof-facing deliverable. They are parameterized over arbitrary `accepted`/`value`/`parse`/
+`π`, so there is nothing to prove generically (the content is per-parser). -/
 
 variable {α : Type}
 
 /-- Soundness: if the external `parse` accepts `s` as `a`, then `s` is accepted by the
-    spec and the parsed value's projection equals `computeValue`. -/
-def SoundStmt (g : Grammar) (cs : List ConstraintEntry) (ve : ValExpr)
+    (surface) spec and the parsed value's projection equals the spec's value. -/
+def SoundStmt (accepted : String → Prop) (val : String → Option Int)
     (parse : String → Option α) (π : α → Int) : Prop :=
-  ∀ s a, parse s = some a → isAccepted g cs s ∧ computeValue g ve s = some (π a)
+  ∀ s a, parse s = some a → accepted s ∧ val s = some (π a)
 
-/-- Completeness: if `s` is accepted by the spec with value `v`, then `parse` accepts it
-    as some `a` whose projection is `v`. -/
-def CompleteStmt (g : Grammar) (cs : List ConstraintEntry) (ve : ValExpr)
+/-- Completeness: if `s` is accepted by the (surface) spec with value `v`, then `parse`
+    accepts it as some `a` whose projection is `v`. -/
+def CompleteStmt (accepted : String → Prop) (val : String → Option Int)
     (parse : String → Option α) (π : α → Int) : Prop :=
-  ∀ s v, isAccepted g cs s → computeValue g ve s = some v →
+  ∀ s v, accepted s → val s = some v →
     ∃ a, parse s = some a ∧ π a = v
 
-/-- Failure characterization: `parse` rejects exactly the strings that are not accepted
-    by the spec. -/
-def RejectStmt (g : Grammar) (cs : List ConstraintEntry)
-    (parse : String → Option α) : Prop :=
-  ∀ s, parse s = none ↔ ¬ isAccepted g cs s
+/-- Failure characterization: `parse` rejects exactly the strings the (surface) spec does
+    not accept. -/
+def RejectStmt (accepted : String → Prop) (parse : String → Option α) : Prop :=
+  ∀ s, parse s = none ↔ ¬ accepted s
 
 end FormatSpec
