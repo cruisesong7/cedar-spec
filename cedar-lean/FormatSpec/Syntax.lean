@@ -431,14 +431,18 @@ def elabFormatSpec : CommandElab := fun stx => do
           let (f, is) ← parseEscEntry e
           hasValueEsc := true
           let vfnIdent := mkIdentFrom name (name.getId ++ `valueFn)
-          emitEngine (← `(def $vfnIdent : Env → Int := $(← liftMacroM (FormatSpec.opaqueEnvClosure f is))))
-          -- spec: a READABLE `<Name>.value` — the author's call over the surface string binders.
+          -- ARBITRARY value type: no `: Env → Int` ascription — the author's `f` return type
+          -- flows through (Env → α for whatever α `f` produces: Int, SimpleGraph, matrix, …),
+          -- so a `value'` escape can parse to a STRUCTURED value, not just a scalar.
+          emitEngine (← `(def $vfnIdent := $(← liftMacroM (FormatSpec.opaqueEnvClosure f is))))
+          -- spec: a READABLE `<Name>.value` — the author's call over the surface string binders
+          -- (return type inferred from `f`, likewise not pinned to `Int`).
           let capNames := is.toList.map (·.getId.toString)
           let binders : Array (TSyntax `ident) :=
             (capNames.map (fun c => mkIdent (Name.mkSimple (FormatSpec.surfaceBinder c)))).toArray
           let bArgs : Array (TSyntax `term) := binders.map (fun i => ⟨i.raw⟩)
           let valIdent := mkIdentFrom name (name.getId ++ `value)
-          emitSpec (← `(def $valIdent $[($binders : String)]* : Int := $f $bArgs*))
+          emitSpec (← `(def $valIdent $[($binders : String)]* := $f $bArgs*))
           valueCaps := capNames
         | _ => throwUnsupportedSyntax
       -- Constraints (optional): constraint-DSL predicates, one per line, with `value`
@@ -505,9 +509,18 @@ def elabFormatSpec : CommandElab := fun stx => do
       emitEngine (← `(abbrev $scIdent  (s : String) : Prop := FormatSpec.satisfiesConstraints $grammarIdent $cIdent s))
       emitEngine (← `(abbrev $accIdent (s : String) : Prop := $wfIdent s ∧ $scIdent s))
       if let some veIdent := veIdent? then
+        -- DSL tier: `computeValue` via the analyzable `ValExpr` (Int-valued).
         let cvIdent := mkIdentFrom name (name.getId ++ `computeValue)
         emitEngine (← `(def $cvIdent (s : String) : Option Int :=
                       FormatSpec.computeValue $grammarIdent $veIdent s))
+      else if hasValueEsc then
+        -- ESCAPE tier: `computeValue` via `computeValueF` and the author's `valueFn` — the
+        -- value type is arbitrary (inferred from `valueFn`), so this parses to whatever
+        -- structured value `value'` produces (`Option SimpleGraph`, `Option (Matrix …)`, …).
+        let cvIdent := mkIdentFrom name (name.getId ++ `computeValue)
+        let vfnIdent := mkIdentFrom name (name.getId ++ `valueFn)
+        emitEngine (← `(def $cvIdent (s : String) :=
+                      FormatSpec.computeValueF $grammarIdent $vfnIdent s))
       -- SPEC bundle (capitalized): the citable validity predicate, engine-free except for
       -- the `grammar` + library `decode` (the irreducible String→components bridge). Matches
       -- Cedar's wording — "a string is VALID iff it satisfies the grammar and constraints":
@@ -545,7 +558,10 @@ def elabFormatSpec : CommandElab := fun stx => do
           let rejIdent := mkIdentFrom name (name.getId ++ `reject)
           emitContract (← `(theorem $rejIdent :
               RejectStmt $accSurf $parseT := by sorry))
-          if veIdent?.isSome then
+          -- `sound`/`complete` need a value function — emitted whenever a `value` OR `value'`
+          -- section is present (both produce `<Name>.computeValue`; the escape tier's value
+          -- type is arbitrary, matched by the `projection`'s codomain).
+          if veIdent?.isSome || hasValueEsc then
             let cvIdent := mkIdentFrom name (name.getId ++ `computeValue)
             let soundIdent := mkIdentFrom name (name.getId ++ `sound)
             let compIdent  := mkIdentFrom name (name.getId ++ `complete)

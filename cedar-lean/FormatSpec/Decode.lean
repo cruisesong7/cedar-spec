@@ -149,4 +149,13 @@ def decode (g : Grammar) (s : String) : Option CaptureMap :=
 def computeValue (g : Grammar) (ve : ValExpr) (s : String) : Option Int :=
   (decode g s).map (fun m => ve.eval m.toEnv)
 
+/-- The value function for an ARBITRARY-typed value: decode the string, then apply a value
+    reader `valFn : Env → α` to the resulting capture environment. `none` when the string is
+    not well-formed. This is the generalization of `computeValue` beyond `Int` — the `value'`
+    escape tier supplies a `valFn` returning any `α` (e.g. `SimpleGraph`, an adjacency matrix,
+    an `IPNet`), so the generated `computeValue` can parse a string into a STRUCTURED value.
+    `computeValue g ve = computeValueF g (ve.eval ·)` (the DSL tier is the `α := Int` case). -/
+def computeValueF {α : Type} (g : Grammar) (valFn : Env → α) (s : String) : Option α :=
+  (decode g s).map (fun m => valFn m.toEnv)
+
 end FormatSpec

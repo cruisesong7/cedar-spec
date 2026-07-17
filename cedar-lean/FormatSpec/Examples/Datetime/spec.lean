@@ -95,7 +95,7 @@ def Datetime.IsWf.Datetime (s : String) : Prop :=
         Datetime.IsWf.Offset offset
 
 def Datetime.value (yyyy : String) (mm : String) (dd : String) (time_hh : String) (time_mm : String) (ss : String)
-    (sss : String) (offset_hh : String) (offset_mm : String) (offset : String) : Int :=
+    (sss : String) (offset_hh : String) (offset_mm : String) (offset : String) :=
   epochMillis yyyy mm dd time_hh time_mm ss sss offset_hh offset_mm offset
 
 def Datetime.Constraints (mm : String) (time_hh : String) (time_mm : String) (ss : String) (offset_hh : String)
@@ -122,7 +122,7 @@ abbrev Datetime.IsValid (s : String) : Prop :=
 -- value/constraint ASTs and the decode-backed interpreter bundle (`isWf`,
 -- `isValid`, `computeValue`).
 
-def Datetime.valueFn : Env → Int := fun env : Env =>
+def Datetime.valueFn := fun env : Env =>
   epochMillis (((env : Env) "YYYY").getD "") (((env : Env) "MM").getD "") (((env : Env) "DD").getD "")
     (((env : Env) "Time.hh").getD "") (((env : Env) "Time.mm").getD "") (((env : Env) "ss").getD "")
     (((env : Env) "SSS").getD "") (((env : Env) "Offset.hh").getD "") (((env : Env) "Offset.mm").getD "")
@@ -158,6 +158,9 @@ abbrev Datetime.satisfiesConstraints (s : String) : Prop :=
 
 abbrev Datetime.isValid (s : String) : Prop :=
   Datetime.isWf s ∧ Datetime.satisfiesConstraints s
+
+def Datetime.computeValue (s : String) :=
+  FormatSpec.computeValueF Datetime.grammar Datetime.valueFn s
 
 -- ════════════════════════════ soundness ════════════════════════════
 -- The guarantees tying the two together: the surface⟺engine equivalence

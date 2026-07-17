@@ -94,20 +94,26 @@ statement is surface-level, the proof drops to the engine where it is tractable.
 
 These are the theorem *statements* the command emits as `sorry`d obligations — the
 proof-facing deliverable. They are parameterized over arbitrary `accepted`/`value`/`parse`/
-`π`, so there is nothing to prove generically (the content is per-parser). -/
+`π`, so there is nothing to prove generically (the content is per-parser).
 
-variable {α : Type}
+The value denotation type `β` is arbitrary (not just `Int`): `val : String → Option β` and
+the projection `π : α → β` read the parser's value into that same type. For a scalar format
+`β = Int` (the parser's `α` projects to its stored `Int`); for a structured format `β` is the
+structured value itself (`SimpleGraph`, adjacency matrix, `IPNet`), often with `α = β` and
+`π = id`. -/
+
+variable {α β : Type}
 
 /-- Soundness: if the external `parse` accepts `s` as `a`, then `s` is accepted by the
     (surface) spec and the parsed value's projection equals the spec's value. -/
-def SoundStmt (accepted : String → Prop) (val : String → Option Int)
-    (parse : String → Option α) (π : α → Int) : Prop :=
+def SoundStmt (accepted : String → Prop) (val : String → Option β)
+    (parse : String → Option α) (π : α → β) : Prop :=
   ∀ s a, parse s = some a → accepted s ∧ val s = some (π a)
 
 /-- Completeness: if `s` is accepted by the (surface) spec with value `v`, then `parse`
     accepts it as some `a` whose projection is `v`. -/
-def CompleteStmt (accepted : String → Prop) (val : String → Option Int)
-    (parse : String → Option α) (π : α → Int) : Prop :=
+def CompleteStmt (accepted : String → Prop) (val : String → Option β)
+    (parse : String → Option α) (π : α → β) : Prop :=
   ∀ s v, accepted s → val s = some v →
     ∃ a, parse s = some a ∧ π a = v
 

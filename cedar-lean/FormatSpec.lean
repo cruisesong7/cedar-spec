@@ -39,6 +39,8 @@ import FormatSpec.Examples.IPv4.grammar
 import FormatSpec.Examples.IPv4.spec
 import FormatSpec.Examples.IPv6.grammar
 import FormatSpec.Examples.IPv6.spec
+import FormatSpec.Examples.Graph.grammar
+import FormatSpec.Examples.Graph.spec
 
 /-!
 # FormatSpec
