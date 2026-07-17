@@ -58,7 +58,7 @@ def termPred (tok : TokClass) (ls : LenSpec) (v : TSyntax `term) : CommandElabM 
 
 /-- Predicate that string `v` matches symbol `sym`. Refs resolve to the sibling
     per-production predicate `<specName>.IsWf.<Nt>`. -/
-def symPred (specName : Name) : Sym → (v : TSyntax `term) → CommandElabM (TSyntax `term)
+partial def symPred (specName : Name) : Sym → (v : TSyntax `term) → CommandElabM (TSyntax `term)
   | .lit l,       v => `($v = $(Syntax.mkStrLit l))
   | .term tok ls, v => termPred tok ls v
   | .ref nm,      v => do
@@ -66,6 +66,17 @@ def symPred (specName : Name) : Sym → (v : TSyntax `term) → CommandElabM (TS
       -- capital-`I` Prop = the readable surface spec; cf. the bundle's lowercase `isWf`)
       let refId := mkIdent (specName ++ `IsWf ++ nm.toName)
       `($refId $v)
+  | .rep sep item lo hi, v => do
+      -- separated repetition reads as its `matchesRep` surface form: some `parts` list,
+      -- each satisfying the item predicate, joined by `sep`, with count within `[lo,hi]`.
+      let itemPred ← symPred specName item (← `(p))
+      let loT := Syntax.mkNatLit lo
+      let hiBound ← match hi with
+        | none   => `(True)
+        | some h => `(parts.length ≤ $(Syntax.mkNatLit h))
+      `(∃ parts : List String,
+          $loT ≤ parts.length ∧ $hiBound
+            ∧ (∀ p ∈ parts, $itemPred) ∧ $v = String.intercalate $(Syntax.mkStrLit sep) parts)
 
 /-- Nonterminal name → its `∃`-binder in the inlined predicates. Shares `surfaceBinder`
     (from `Value`) so the well-formedness binders match the value/constraint parameter names
@@ -78,6 +89,7 @@ private def binderBase : Sym → Option String
   | .lit _      => none
   | .ref nm     => some (deCap nm)
   | .term _ _   => some "digits"
+  | .rep _ item _ _ => (binderBase item).map (· ++ "s")  -- a list of the items ("groups")
 
 /-- Assign a readable, unique binder name to each capturing item (literals → `none`).
     Names come from the nonterminal (`Integer` → `integer`); duplicates within one
@@ -288,11 +300,10 @@ partial def subtreeDepth (g : Grammar) (name : String) (fuel : Nat) : Nat :=
 
 /-- Render a `Sym` as a `SymItem` literal term (mirrors `elabSym`/`elabItem` but produces
     the fully-applied constructor form used inside the `show … = some <prod> from rfl`). -/
-private def symItemLit (it : SymItem) : CommandElabM (TSyntax `term) := do
-  let symT ← match it.sym with
-    | .lit l        => `(Sym.lit $(Syntax.mkStrLit l))
-    | .ref nm       => `(Sym.ref $(Syntax.mkStrLit nm))
-    | .term tok ls  =>
+private partial def symLit : Sym → CommandElabM (TSyntax `term)
+  | .lit l        => `(Sym.lit $(Syntax.mkStrLit l))
+  | .ref nm       => `(Sym.ref $(Syntax.mkStrLit nm))
+  | .term tok ls  => do
       let tokT ← match tok with
         | .digit    => `(TokClass.digit)
         | .hexDigit => `(TokClass.hexDigit)
@@ -301,6 +312,15 @@ private def symItemLit (it : SymItem) : CommandElabM (TSyntax `term) := do
         | .between lo hi => `(LenSpec.between $(quote lo) $(quote hi))
         | .atLeastOne   => `(LenSpec.atLeastOne)
       `(Sym.term $tokT $lsT)
+  | .rep sep item lo hi => do
+      let itemT ← symLit item
+      let hiT ← match hi with
+        | none   => `((none : Option Nat))
+        | some h => `(some $(quote h))
+      `(Sym.rep $(Syntax.mkStrLit sep) $itemT $(quote lo) $hiT)
+
+private def symItemLit (it : SymItem) : CommandElabM (TSyntax `term) := do
+  let symT ← symLit it.sym
   let optT ← if it.optional then `(true) else `(false)
   `(SymItem.mk $symT $optT)
 
@@ -406,7 +426,8 @@ def matchesRefProof (specName : Name) (grammarId : TSyntax `ident) (p : Producti
           first
           | apply or_congr
           | (simp (config := { maxSteps := 1000000 }) only [String.append_assoc, String.append_empty, exists_and_left,
-                ← and_assoc, exists_eq_left, exists_eq_left', exists_eq_right, and_true]
+                ← and_assoc, exists_eq_left, exists_eq_left', exists_eq_right, and_true,
+                Option.some.injEq, forall_eq']
              try grind [String.append_assoc, String.append_empty]))
   else
     `(theorem $lemId (fuel : Nat) (s : String) :
@@ -417,7 +438,8 @@ def matchesRefProof (specName : Name) (grammarId : TSyntax `ident) (p : Producti
         unfold $surfId
         simp (config := { maxSteps := 1000000 }) only [$allBody,*]
         simp (config := { maxSteps := 1000000 }) only [String.append_assoc, String.append_empty, exists_and_left,
-          ← and_assoc, exists_eq_left, exists_eq_left', exists_eq_right, and_true]
+          ← and_assoc, exists_eq_left, exists_eq_left', exists_eq_right, and_true,
+          Option.some.injEq, forall_eq']
         try grind [String.append_assoc, String.append_empty])
 
 /-- Emit the top-level bridge `<Name>.IsWf_equiv : IsWf g s ↔ <Name>.IsWf.<start> s`.
@@ -466,6 +488,7 @@ def isValidEquivProof (specName : Name)
   let valFn      := mkIdent (specName ++ `value)
   let valExpr    := mkIdent (specName ++ `valueExpr)
   let equivWf    := mkIdent (specName ++ `IsWf_equiv)
+  let grammarId  := mkIdent (specName ++ `grammar)
   -- Defs to unfold, in dependency order: `SatisfiesConstraints → Constraints` (surface) and
   -- the engine `constraints` list; then `value` (surface) and `valueExpr` (engine AST, which
   -- only appears *after* the `constraints` list is unfolded). Each included only when present.
@@ -477,7 +500,7 @@ def isValidEquivProof (specName : Name)
   `(theorem $equivId (s : String) : $validSurf s ↔ $validEng s := by
       unfold $validSurf $validEng $isWfEng $scEng
       unfold FormatSpec.isWf FormatSpec.satisfiesConstraints
-      rw [← $equivWf, ← decodeSome_iff_IsWf]
+      rw [← $equivWf, ← decodeSome_iff_IsWf $grammarId (by decide)]
       unfold $[$surfUnfolds:ident]*
       simp only [FormatSpec.component, List.forall_mem_cons, List.forall_mem_singleton,
         List.not_mem_nil, forall_const, if_true, if_false, ConstraintEntry.wfPart,

@@ -114,7 +114,7 @@ theorem IPv4.Internal.matchesRef.Oct1 (fuel : Nat) (s : String) :
     if_true, if_false, Bool.false_eq_true, false_and, or_false, or_assoc, FormatSpec.matchesSym, IsDigits_matchesTerm,
     IsFixedDigits_matchesTerm, IsDigitsBetween_matchesTerm]
   simp (config := { maxSteps := 1000000 }) only [String.append_assoc, String.append_empty, exists_and_left, ← and_assoc,
-    exists_eq_left, exists_eq_left', exists_eq_right, and_true]
+    exists_eq_left, exists_eq_left', exists_eq_right, and_true, Option.some.injEq, forall_eq']
   try grind [String.append_assoc, String.append_empty]
 
 theorem IPv4.Internal.matchesRef.Oct2 (fuel : Nat) (s : String) :
@@ -132,7 +132,7 @@ theorem IPv4.Internal.matchesRef.Oct2 (fuel : Nat) (s : String) :
     if_true, if_false, Bool.false_eq_true, false_and, or_false, or_assoc, FormatSpec.matchesSym, IsDigits_matchesTerm,
     IsFixedDigits_matchesTerm, IsDigitsBetween_matchesTerm]
   simp (config := { maxSteps := 1000000 }) only [String.append_assoc, String.append_empty, exists_and_left, ← and_assoc,
-    exists_eq_left, exists_eq_left', exists_eq_right, and_true]
+    exists_eq_left, exists_eq_left', exists_eq_right, and_true, Option.some.injEq, forall_eq']
   try grind [String.append_assoc, String.append_empty]
 
 theorem IPv4.Internal.matchesRef.Oct3 (fuel : Nat) (s : String) :
@@ -150,7 +150,7 @@ theorem IPv4.Internal.matchesRef.Oct3 (fuel : Nat) (s : String) :
     if_true, if_false, Bool.false_eq_true, false_and, or_false, or_assoc, FormatSpec.matchesSym, IsDigits_matchesTerm,
     IsFixedDigits_matchesTerm, IsDigitsBetween_matchesTerm]
   simp (config := { maxSteps := 1000000 }) only [String.append_assoc, String.append_empty, exists_and_left, ← and_assoc,
-    exists_eq_left, exists_eq_left', exists_eq_right, and_true]
+    exists_eq_left, exists_eq_left', exists_eq_right, and_true, Option.some.injEq, forall_eq']
   try grind [String.append_assoc, String.append_empty]
 
 theorem IPv4.Internal.matchesRef.Oct4 (fuel : Nat) (s : String) :
@@ -168,7 +168,7 @@ theorem IPv4.Internal.matchesRef.Oct4 (fuel : Nat) (s : String) :
     if_true, if_false, Bool.false_eq_true, false_and, or_false, or_assoc, FormatSpec.matchesSym, IsDigits_matchesTerm,
     IsFixedDigits_matchesTerm, IsDigitsBetween_matchesTerm]
   simp (config := { maxSteps := 1000000 }) only [String.append_assoc, String.append_empty, exists_and_left, ← and_assoc,
-    exists_eq_left, exists_eq_left', exists_eq_right, and_true]
+    exists_eq_left, exists_eq_left', exists_eq_right, and_true, Option.some.injEq, forall_eq']
   try grind [String.append_assoc, String.append_empty]
 
 theorem IPv4.Internal.matchesRef.V4Addr (fuel : Nat) (s : String) :
@@ -191,7 +191,7 @@ theorem IPv4.Internal.matchesRef.V4Addr (fuel : Nat) (s : String) :
     IPv4.Internal.matchesRef.Oct1, IPv4.Internal.matchesRef.Oct2, IPv4.Internal.matchesRef.Oct3,
     IPv4.Internal.matchesRef.Oct4]
   simp (config := { maxSteps := 1000000 }) only [String.append_assoc, String.append_empty, exists_and_left, ← and_assoc,
-    exists_eq_left, exists_eq_left', exists_eq_right, and_true]
+    exists_eq_left, exists_eq_left', exists_eq_right, and_true, Option.some.injEq, forall_eq']
   try grind [String.append_assoc, String.append_empty]
 
 theorem IPv4.IsWf_equiv (s : String) : IsWf IPv4.grammar s ↔ IPv4.IsWf.V4Addr s :=
@@ -236,7 +236,8 @@ theorem IPv4.IsWf_equiv (s : String) : IsWf IPv4.grammar s ↔ IPv4.IsWf.V4Addr 
   rw [hstart]
   exact IPv4.Internal.matchesRef.V4Addr _ s
 
-instance IPv4.instDecidableIsWf : DecidablePred IPv4.IsWf.V4Addr := fun s => decidable_of_iff _ (IPv4.IsWf_equiv s)
+instance IPv4.instDecidableIsWf : DecidablePred IPv4.IsWf.V4Addr := fun s =>
+  @decidable_of_iff _ _ (IPv4.IsWf_equiv s) (FormatSpec.decIsWf IPv4.grammar (by decide) s)
 
 instance IPv4.instDecidableSatisfiesConstraints : DecidablePred IPv4.SatisfiesConstraints := fun s => by
   simp only [IPv4.SatisfiesConstraints, IPv4.Constraints]; exact inferInstance
@@ -247,7 +248,7 @@ theorem IPv4.IsValid_equiv (s : String) : IPv4.IsValid s ↔ IPv4.isValid s :=
   by
   unfold IPv4.IsValid IPv4.isValid IPv4.isWf IPv4.satisfiesConstraints
   unfold FormatSpec.isWf FormatSpec.satisfiesConstraints
-  rw [← IPv4.IsWf_equiv, ← decodeSome_iff_IsWf]
+  rw [← IPv4.IsWf_equiv, ← decodeSome_iff_IsWf IPv4.grammar (by decide)]
   unfold IPv4.SatisfiesConstraints IPv4.Constraints IPv4.constraints
   simp only [FormatSpec.component, List.forall_mem_cons, List.forall_mem_singleton, List.not_mem_nil, forall_const,
     if_true, if_false, ConstraintEntry.wfPart, ConstraintEntry.valPart, Constraint.wfPart, Constraint.valPart,

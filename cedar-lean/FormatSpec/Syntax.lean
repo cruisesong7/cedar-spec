@@ -84,6 +84,9 @@ syntax "digit" fmtLen     : fmtItem  -- decimal terminal
 syntax "hexDigit" fmtLen  : fmtItem  -- hex terminal
 syntax ident              : fmtItem  -- nonterminal reference
 syntax "[" fmtItem "]"    : fmtItem  -- optional
+-- separated GROUP repetition: `rep H16 sepBy ":" {8}` = eight `H16`s joined by `":"`
+-- (`item (sep item)*`, item-count per the `fmtLen`: `{8}`→exactly, `{1,8}`→range, `+`→≥1).
+syntax "rep" fmtItem "sepBy" str fmtLen : fmtItem
 
 /-- One alternative: a sequence of items. -/
 declare_syntax_cat fmtSeq
@@ -153,16 +156,41 @@ def elabLen : TSyntax `fmtLen → CommandElabM (TSyntax `term)
   | `(fmtLen| { $lo:num , $hi:num })  => `(LenSpec.between $lo $hi)
   | s                                 => throwErrorAt s "unrecognized length suffix"
 
+/-- Does this repetition-count `fmtLen` have a ZERO lower bound (`{0}` or `{0,_}`)? Such a
+    repetition admits a zero-item match denotationally but the decoder always matches ≥ 1
+    item, so the DSL rejects it (mirrors the empty-separator rejection). `+` is `lo = 1`. -/
+def repLenLoZero : TSyntax `fmtLen → Bool
+  | `(fmtLen| { $n:num })          => n.getNat == 0
+  | `(fmtLen| { $lo:num , $_:num }) => lo.getNat == 0
+  | _                              => false
+
+/-- A `fmtLen` reused as a repetition COUNT bound → `(lo, hi?)`: `{n}`→exactly `n`,
+    `{lo,hi}`→range, `+`→at least one (unbounded). -/
+def elabRepBounds : TSyntax `fmtLen → CommandElabM (TSyntax `term × TSyntax `term)
+  | `(fmtLen| +)                     => do pure (← `((1 : Nat)), ← `((none : Option Nat)))
+  | `(fmtLen| { $n:num })            => do pure (← `($n), ← `(some $n))
+  | `(fmtLen| { $lo:num , $hi:num }) => do pure (← `($lo), ← `(some $hi))
+  | s                                => throwErrorAt s "unrecognized repetition count"
+
 /-- Elaborate a non-optional item into a `Sym` term. Errors on a bare `[…]`
     (optionality is handled one level up, in `elabItem`). -/
 -- NOTE: the grammar-literal quotations below use UNQUALIFIED constructor names
 -- (`Sym.lit`, `Production.mk`, …). The generated file `open`s `FormatSpec`, so these
 -- resolve there and read cleanly; within this module `open Lean Elab Command` + the
 -- enclosing `namespace FormatSpec` also make them resolve.
-def elabSym : TSyntax `fmtItem → CommandElabM (TSyntax `term)
+partial def elabSym : TSyntax `fmtItem → CommandElabM (TSyntax `term)
   | `(fmtItem| $s:str)            => `(Sym.lit $s)
   | `(fmtItem| digit $l:fmtLen)   => do `(Sym.term TokClass.digit $(← elabLen l))
   | `(fmtItem| hexDigit $l:fmtLen) => do `(Sym.term TokClass.hexDigit $(← elabLen l))
+  | `(fmtItem| rep $inner:fmtItem sepBy $sep:str $l:fmtLen) => do
+      if sep.getString.isEmpty then
+        throwErrorAt sep "repetition separator must be non-empty (an empty separator makes the \
+          item count unrecoverable — `decode` and `IsWf` would disagree)"
+      if repLenLoZero l then
+        throwErrorAt l "repetition must require at least one item (lower bound ≥ 1); a \
+          zero-item repetition has no separated-list decoding"
+      let (lo, hi) ← elabRepBounds l
+      `(Sym.rep $sep $(← elabSym inner) $lo $hi)
   | `(fmtItem| $i:ident)          => `(Sym.ref $(Syntax.mkStrLit i.getId.toString))
   | s                             => throwErrorAt s "unrecognized grammar item"
 
@@ -199,10 +227,27 @@ def parseLen : TSyntax `fmtLen → CommandElabM LenSpec
   | `(fmtLen| { $lo:num , $hi:num }) => pure (.between lo.getNat hi.getNat)
   | s                                => throwErrorAt s "unrecognized length suffix"
 
-def parseSym : TSyntax `fmtItem → CommandElabM Sym
+/-- A `fmtLen` reused as a repetition COUNT bound → `(lo, hi?)` VALUE (mirrors
+    `elabRepBounds`): `{n}`→(n, some n), `{lo,hi}`→(lo, some hi), `+`→(1, none). -/
+def parseRepBounds : TSyntax `fmtLen → CommandElabM (Nat × Option Nat)
+  | `(fmtLen| +)                     => pure (1, none)
+  | `(fmtLen| { $n:num })            => pure (n.getNat, some n.getNat)
+  | `(fmtLen| { $lo:num , $hi:num }) => pure (lo.getNat, some hi.getNat)
+  | s                                => throwErrorAt s "unrecognized repetition count"
+
+partial def parseSym : TSyntax `fmtItem → CommandElabM Sym
   | `(fmtItem| $s:str)             => pure (.lit s.getString)
   | `(fmtItem| digit $l:fmtLen)    => do pure (.term .digit (← parseLen l))
   | `(fmtItem| hexDigit $l:fmtLen) => do pure (.term .hexDigit (← parseLen l))
+  | `(fmtItem| rep $inner:fmtItem sepBy $sep:str $l:fmtLen) => do
+      if sep.getString.isEmpty then
+        throwErrorAt sep "repetition separator must be non-empty (an empty separator makes the \
+          item count unrecoverable — `decode` and `IsWf` would disagree)"
+      if repLenLoZero l then
+        throwErrorAt l "repetition must require at least one item (lower bound ≥ 1); a \
+          zero-item repetition has no separated-list decoding"
+      let (lo, hi) ← parseRepBounds l
+      pure (.rep sep.getString (← parseSym inner) lo hi)
   | `(fmtItem| $i:ident)           => pure (.ref i.getId.toString)
   | s                              => throwErrorAt s "unrecognized grammar item"
 
@@ -318,8 +363,11 @@ def elabFormatSpec : CommandElab := fun stx => do
           let instWfId  := mkIdentFrom name (name.getId ++ `instDecidableIsWf)
           let instScId  := mkIdentFrom name (name.getId ++ `instDecidableSatisfiesConstraints)
           let instAccId := mkIdentFrom name (name.getId ++ `instDecidableIsValid)
+          -- Source `Decidable (IsWf grammar s)` comes from `decIsWf` (the decode roundtrip),
+          -- which now takes the `g.repOk = true` side condition — discharged by `decide` at
+          -- this concrete grammar (the DSL guarantees it: non-empty rep separators, `lo ≥ 1`).
           emitSound (← `(instance $instWfId:ident : DecidablePred $startIsWfId := fun s =>
-                        decidable_of_iff _ ($equivId s)))
+                        @decidable_of_iff _ _ ($equivId s) (FormatSpec.decIsWf $grammarIdent (by decide) s)))
           -- Decidability of the full validity predicate: `SatisfiesConstraints` is a
           -- `def` over decode-extracted strings + decidable atoms (`≤`/`≠`/…), so it needs
           -- its instance unfolded; then `IsValid = IsWf.<start> ∧ SatisfiesConstraints`

@@ -19,20 +19,15 @@ set_option linter.unusedVariables false
 
 def IPv6.grammar : Grammar :=
   Grammar.mk "V6Addr"
-    [Production.mk "V6Addr"
-        [[SymItem.mk (Sym.ref "H16") false, SymItem.mk (Sym.lit ":") false, SymItem.mk (Sym.ref "H16") false,
-            SymItem.mk (Sym.lit ":") false, SymItem.mk (Sym.ref "H16") false, SymItem.mk (Sym.lit ":") false,
-            SymItem.mk (Sym.ref "H16") false]],
+    [Production.mk "V6Addr" [[SymItem.mk (Sym.rep ":" (Sym.ref "H16") 8 (some 8)) false]],
       Production.mk "H16" [[SymItem.mk (Sym.term TokClass.hexDigit (LenSpec.between 1 4)) false]]]
 
 def IPv6.IsWf.H16 (s : String) : Prop :=
   IsHexDigitsBetween 1 4 s
 
 def IPv6.IsWf.V6Addr (s : String) : Prop :=
-  ∃ h160 h161 h162 h163,
-    (((s = h160 ++ ":" ++ h161 ++ ":" ++ h162 ++ ":" ++ h163 ∧ IPv6.IsWf.H16 h160) ∧ IPv6.IsWf.H16 h161) ∧
-        IPv6.IsWf.H16 h162) ∧
-      IPv6.IsWf.H16 h163
+  ∃ parts : List String,
+    8 ≤ parts.length ∧ parts.length ≤ 8 ∧ (∀ p ∈ parts, IPv6.IsWf.H16 p) ∧ s = String.intercalate ":" parts
 
 abbrev IPv6.SatisfiesConstraints (s : String) : Prop :=
   True
@@ -77,7 +72,7 @@ theorem IPv6.Internal.matchesRef.H16 (fuel : Nat) (s : String) :
     if_true, if_false, Bool.false_eq_true, false_and, or_false, or_assoc, FormatSpec.matchesSym,
     IsHexDigits_matchesTerm, IsFixedHexDigits_matchesTerm, IsHexDigitsBetween_matchesTerm]
   simp (config := { maxSteps := 1000000 }) only [String.append_assoc, String.append_empty, exists_and_left, ← and_assoc,
-    exists_eq_left, exists_eq_left', exists_eq_right, and_true]
+    exists_eq_left, exists_eq_left', exists_eq_right, and_true, Option.some.injEq, forall_eq']
   try grind [String.append_assoc, String.append_empty]
 
 theorem IPv6.Internal.matchesRef.V6Addr (fuel : Nat) (s : String) :
@@ -86,11 +81,7 @@ theorem IPv6.Internal.matchesRef.V6Addr (fuel : Nat) (s : String) :
   rw [matchesSym,
     show
       (IPv6.grammar).prod? "V6Addr" =
-        some
-          (Production.mk "V6Addr"
-            [[SymItem.mk (Sym.ref "H16") false, SymItem.mk (Sym.lit ":") false, SymItem.mk (Sym.ref "H16") false,
-                SymItem.mk (Sym.lit ":") false, SymItem.mk (Sym.ref "H16") false, SymItem.mk (Sym.lit ":") false,
-                SymItem.mk (Sym.ref "H16") false]])
+        some (Production.mk "V6Addr" [[SymItem.mk (Sym.rep ":" (Sym.ref "H16") 8 (some 8)) false]])
       from rfl]
   dsimp only
   rw [matchesProd_single]
@@ -99,7 +90,7 @@ theorem IPv6.Internal.matchesRef.V6Addr (fuel : Nat) (s : String) :
     if_true, if_false, Bool.false_eq_true, false_and, or_false, or_assoc, FormatSpec.matchesSym,
     IPv6.Internal.matchesRef.H16]
   simp (config := { maxSteps := 1000000 }) only [String.append_assoc, String.append_empty, exists_and_left, ← and_assoc,
-    exists_eq_left, exists_eq_left', exists_eq_right, and_true]
+    exists_eq_left, exists_eq_left', exists_eq_right, and_true, Option.some.injEq, forall_eq']
   try grind [String.append_assoc, String.append_empty]
 
 theorem IPv6.IsWf_equiv (s : String) : IsWf IPv6.grammar s ↔ IPv6.IsWf.V6Addr s :=
@@ -107,19 +98,11 @@ theorem IPv6.IsWf_equiv (s : String) : IsWf IPv6.grammar s ↔ IPv6.IsWf.V6Addr 
   rw [isWf_eq_isWfProd_start, IsWfProd,
     show
       (IPv6.grammar).prod? (IPv6.grammar).start =
-        some
-          (Production.mk "V6Addr"
-            [[SymItem.mk (Sym.ref "H16") false, SymItem.mk (Sym.lit ":") false, SymItem.mk (Sym.ref "H16") false,
-                SymItem.mk (Sym.lit ":") false, SymItem.mk (Sym.ref "H16") false, SymItem.mk (Sym.lit ":") false,
-                SymItem.mk (Sym.ref "H16") false]])
+        some (Production.mk "V6Addr" [[SymItem.mk (Sym.rep ":" (Sym.ref "H16") 8 (some 8)) false]])
       from rfl]
   have hstart :
     ∀ n,
-      matchesProd IPv6.grammar n
-          (Production.mk "V6Addr"
-            [[SymItem.mk (Sym.ref "H16") false, SymItem.mk (Sym.lit ":") false, SymItem.mk (Sym.ref "H16") false,
-                SymItem.mk (Sym.lit ":") false, SymItem.mk (Sym.ref "H16") false, SymItem.mk (Sym.lit ":") false,
-                SymItem.mk (Sym.ref "H16") false]])
+      matchesProd IPv6.grammar n (Production.mk "V6Addr" [[SymItem.mk (Sym.rep ":" (Sym.ref "H16") 8 (some 8)) false]])
           s =
         matchesSym IPv6.grammar (n + 1) (Sym.ref "V6Addr") s :=
     by
@@ -127,24 +110,17 @@ theorem IPv6.IsWf_equiv (s : String) : IsWf IPv6.grammar s ↔ IPv6.IsWf.V6Addr 
     rw [matchesSym,
       show
         (IPv6.grammar).prod? "V6Addr" =
-          some
-            (Production.mk "V6Addr"
-              [[SymItem.mk (Sym.ref "H16") false, SymItem.mk (Sym.lit ":") false, SymItem.mk (Sym.ref "H16") false,
-                  SymItem.mk (Sym.lit ":") false, SymItem.mk (Sym.ref "H16") false, SymItem.mk (Sym.lit ":") false,
-                  SymItem.mk (Sym.ref "H16") false]])
+          some (Production.mk "V6Addr" [[SymItem.mk (Sym.rep ":" (Sym.ref "H16") 8 (some 8)) false]])
         from rfl]
   show
     matchesProd IPv6.grammar (IPv6.grammar).prods.length
-        (Production.mk "V6Addr"
-          [[SymItem.mk (Sym.ref "H16") false, SymItem.mk (Sym.lit ":") false, SymItem.mk (Sym.ref "H16") false,
-              SymItem.mk (Sym.lit ":") false, SymItem.mk (Sym.ref "H16") false, SymItem.mk (Sym.lit ":") false,
-              SymItem.mk (Sym.ref "H16") false]])
-        s ↔
+        (Production.mk "V6Addr" [[SymItem.mk (Sym.rep ":" (Sym.ref "H16") 8 (some 8)) false]]) s ↔
       _
   rw [hstart]
   exact IPv6.Internal.matchesRef.V6Addr _ s
 
-instance IPv6.instDecidableIsWf : DecidablePred IPv6.IsWf.V6Addr := fun s => decidable_of_iff _ (IPv6.IsWf_equiv s)
+instance IPv6.instDecidableIsWf : DecidablePred IPv6.IsWf.V6Addr := fun s =>
+  @decidable_of_iff _ _ (IPv6.IsWf_equiv s) (FormatSpec.decIsWf IPv6.grammar (by decide) s)
 
 instance IPv6.instDecidableIsValid : DecidablePred IPv6.IsValid := fun s => inferInstanceAs (Decidable (_ ∧ _))
 
@@ -152,7 +128,7 @@ theorem IPv6.IsValid_equiv (s : String) : IPv6.IsValid s ↔ IPv6.isValid s :=
   by
   unfold IPv6.IsValid IPv6.isValid IPv6.isWf IPv6.satisfiesConstraints
   unfold FormatSpec.isWf FormatSpec.satisfiesConstraints
-  rw [← IPv6.IsWf_equiv, ← decodeSome_iff_IsWf]
+  rw [← IPv6.IsWf_equiv, ← decodeSome_iff_IsWf IPv6.grammar (by decide)]
   unfold IPv6.SatisfiesConstraints IPv6.constraints
   simp only [FormatSpec.component, List.forall_mem_cons, List.forall_mem_singleton, List.not_mem_nil, forall_const,
     if_true, if_false, ConstraintEntry.wfPart, ConstraintEntry.valPart, Constraint.wfPart, Constraint.valPart,

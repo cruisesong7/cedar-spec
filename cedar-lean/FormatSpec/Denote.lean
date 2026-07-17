@@ -106,6 +106,14 @@ mutual
 def matchesSym (g : Grammar) : Nat → Sym → String → Prop
   | _,      .lit l,        s => s = l
   | _,      .term tok len, s => matchesTerm tok len s
+  | fuel,   .rep sep item lo hi, s =>
+      -- `item (sep item)*`, item-count in `[lo, hi]`: some list of `parts`, each matching
+      -- `item`, joined by `sep`, equals `s`, with the count within bounds.
+      ∃ parts : List String,
+        lo ≤ parts.length
+          ∧ (∀ h, hi = some h → parts.length ≤ h)
+          ∧ (∀ p ∈ parts, matchesSym g fuel item p)
+          ∧ s = String.intercalate sep parts
   | 0,      .ref _,        _ => False          -- out of fuel (cannot happen in a DAG)
   | fuel+1, .ref name,     s =>
       match g.prod? name with

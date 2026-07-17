@@ -103,7 +103,7 @@ theorem Decimal.Internal.matchesRef.Integer (fuel : Nat) (s : String) :
     if_true, if_false, Bool.false_eq_true, false_and, or_false, or_assoc, FormatSpec.matchesSym, IsDigits_matchesTerm,
     IsFixedDigits_matchesTerm, IsDigitsBetween_matchesTerm]
   simp (config := { maxSteps := 1000000 }) only [String.append_assoc, String.append_empty, exists_and_left, ← and_assoc,
-    exists_eq_left, exists_eq_left', exists_eq_right, and_true]
+    exists_eq_left, exists_eq_left', exists_eq_right, and_true, Option.some.injEq, forall_eq']
   try grind [String.append_assoc, String.append_empty]
 
 theorem Decimal.Internal.matchesRef.Fraction (fuel : Nat) (s : String) :
@@ -121,7 +121,7 @@ theorem Decimal.Internal.matchesRef.Fraction (fuel : Nat) (s : String) :
     if_true, if_false, Bool.false_eq_true, false_and, or_false, or_assoc, FormatSpec.matchesSym, IsDigits_matchesTerm,
     IsFixedDigits_matchesTerm, IsDigitsBetween_matchesTerm]
   simp (config := { maxSteps := 1000000 }) only [String.append_assoc, String.append_empty, exists_and_left, ← and_assoc,
-    exists_eq_left, exists_eq_left', exists_eq_right, and_true]
+    exists_eq_left, exists_eq_left', exists_eq_right, and_true, Option.some.injEq, forall_eq']
   try grind [String.append_assoc, String.append_empty]
 
 theorem Decimal.Internal.matchesRef.Decimal (fuel : Nat) (s : String) :
@@ -142,7 +142,7 @@ theorem Decimal.Internal.matchesRef.Decimal (fuel : Nat) (s : String) :
     if_true, if_false, Bool.false_eq_true, false_and, or_false, or_assoc, FormatSpec.matchesSym,
     Decimal.Internal.matchesRef.Integer, Decimal.Internal.matchesRef.Fraction]
   simp (config := { maxSteps := 1000000 }) only [String.append_assoc, String.append_empty, exists_and_left, ← and_assoc,
-    exists_eq_left, exists_eq_left', exists_eq_right, and_true]
+    exists_eq_left, exists_eq_left', exists_eq_right, and_true, Option.some.injEq, forall_eq']
   try grind [String.append_assoc, String.append_empty]
 
 theorem Decimal.IsWf_equiv (s : String) : IsWf Decimal.grammar s ↔ Decimal.IsWf.Decimal s :=
@@ -184,7 +184,7 @@ theorem Decimal.IsWf_equiv (s : String) : IsWf Decimal.grammar s ↔ Decimal.IsW
   exact Decimal.Internal.matchesRef.Decimal _ s
 
 instance Decimal.instDecidableIsWf : DecidablePred Decimal.IsWf.Decimal := fun s =>
-  decidable_of_iff _ (Decimal.IsWf_equiv s)
+  @decidable_of_iff _ _ (Decimal.IsWf_equiv s) (FormatSpec.decIsWf Decimal.grammar (by decide) s)
 
 instance Decimal.instDecidableSatisfiesConstraints : DecidablePred Decimal.SatisfiesConstraints := fun s => by
   simp only [Decimal.SatisfiesConstraints, Decimal.Constraints, Decimal.value]; exact inferInstance
@@ -195,7 +195,7 @@ theorem Decimal.IsValid_equiv (s : String) : Decimal.IsValid s ↔ Decimal.isVal
   by
   unfold Decimal.IsValid Decimal.isValid Decimal.isWf Decimal.satisfiesConstraints
   unfold FormatSpec.isWf FormatSpec.satisfiesConstraints
-  rw [← Decimal.IsWf_equiv, ← decodeSome_iff_IsWf]
+  rw [← Decimal.IsWf_equiv, ← decodeSome_iff_IsWf Decimal.grammar (by decide)]
   unfold Decimal.SatisfiesConstraints Decimal.Constraints Decimal.constraints Decimal.value Decimal.valueExpr
   simp only [FormatSpec.component, List.forall_mem_cons, List.forall_mem_singleton, List.not_mem_nil, forall_const,
     if_true, if_false, ConstraintEntry.wfPart, ConstraintEntry.valPart, Constraint.wfPart, Constraint.valPart,

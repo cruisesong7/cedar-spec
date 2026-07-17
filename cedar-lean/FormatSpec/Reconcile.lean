@@ -66,6 +66,32 @@ theorem matchesSeq_opt_cons (g : Grammar) (fuel : Nat) (item : SymItem) (rest : 
     · subst hp; right; rw [hs]; simpa using hQ
     · exact Or.inl ⟨p, r, hs, hP, hQ⟩
 
+/-! ## Repetition bridge
+
+The engine `matchesSym … (Sym.rep …)` denotation states the upper bound as
+`∀ h, hi = some h → parts.length ≤ h` (uniform over `Option`), while the emitted surface
+predicate (`Emit.symPred`) reads it in the branch the emitter already knows: `True` when
+`hi = none`, `parts.length ≤ h` when `hi = some h`. This lemma normalizes the engine form
+to that readable branch, so the emitted `matchesRef` proof reconciles a `rep`-containing
+production. (The inner `∀ p ∈ parts, matchesSym … item …` collapses to the item's surface
+predicate via the sibling `matchesRef`/leaf lemmas, fired under the binder by `simp only`.) -/
+theorem matchesSym_rep_iff (g : Grammar) (fuel : Nat) (sep : String) (item : Sym)
+    (lo : Nat) (hi : Option Nat) (s : String) :
+    matchesSym g fuel (Sym.rep sep item lo hi) s ↔
+      ∃ parts : List String,
+        lo ≤ parts.length
+          ∧ (match hi with | none => True | some h => parts.length ≤ h)
+          ∧ (∀ p ∈ parts, matchesSym g fuel item p)
+          ∧ s = String.intercalate sep parts := by
+  simp only [matchesSym]
+  constructor <;> rintro ⟨parts, hlo, hhi, hitem, hs⟩ <;> refine ⟨parts, hlo, ?_, hitem, hs⟩
+  · cases hi with
+    | none => trivial
+    | some h => exact hhi h rfl
+  · cases hi with
+    | none => intro h hcon; exact absurd hcon (by simp)
+    | some h => intro h' heq; cases heq; exact hhi
+
 /-! ## Leaf-collapse bridges
 
 Each readable leaf predicate (`IsDigits`, `IsFixedDigits`, …) is *definitionally* the

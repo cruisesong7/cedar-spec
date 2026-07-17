@@ -39,9 +39,10 @@ covered in `FormatSpec.ValueAnalysis` (to come), not by these grammar functions.
 
 namespace FormatSpec
 
-/-- Direct nonterminal references made by a production (across all its alternatives). -/
+/-- Direct nonterminal references made by a production (across all its alternatives),
+    seeing through `rep` wrappers (via `Sym.allRefs`) so repeated nonterminals are counted. -/
 def Production.directRefs (p : Production) : List String :=
-  p.alts.flatMap (fun seq => seq.filterMap (fun item => item.sym.refName?))
+  p.alts.flatMap (fun seq => seq.flatMap (fun item => item.sym.allRefs))
 
 /-- Depth-first check that the reference graph reachable from `name` is acyclic.
     `fuel` bounds recursion by the number of productions (a DAG cannot have a path

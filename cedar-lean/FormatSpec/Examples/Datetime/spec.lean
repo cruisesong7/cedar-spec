@@ -179,7 +179,7 @@ theorem Datetime.Internal.matchesRef.YYYY (fuel : Nat) (s : String) :
     if_true, if_false, Bool.false_eq_true, false_and, or_false, or_assoc, FormatSpec.matchesSym, IsDigits_matchesTerm,
     IsFixedDigits_matchesTerm, IsDigitsBetween_matchesTerm]
   simp (config := { maxSteps := 1000000 }) only [String.append_assoc, String.append_empty, exists_and_left, ← and_assoc,
-    exists_eq_left, exists_eq_left', exists_eq_right, and_true]
+    exists_eq_left, exists_eq_left', exists_eq_right, and_true, Option.some.injEq, forall_eq']
   try grind [String.append_assoc, String.append_empty]
 
 theorem Datetime.Internal.matchesRef.MM (fuel : Nat) (s : String) :
@@ -197,7 +197,7 @@ theorem Datetime.Internal.matchesRef.MM (fuel : Nat) (s : String) :
     if_true, if_false, Bool.false_eq_true, false_and, or_false, or_assoc, FormatSpec.matchesSym, IsDigits_matchesTerm,
     IsFixedDigits_matchesTerm, IsDigitsBetween_matchesTerm]
   simp (config := { maxSteps := 1000000 }) only [String.append_assoc, String.append_empty, exists_and_left, ← and_assoc,
-    exists_eq_left, exists_eq_left', exists_eq_right, and_true]
+    exists_eq_left, exists_eq_left', exists_eq_right, and_true, Option.some.injEq, forall_eq']
   try grind [String.append_assoc, String.append_empty]
 
 theorem Datetime.Internal.matchesRef.DD (fuel : Nat) (s : String) :
@@ -215,7 +215,7 @@ theorem Datetime.Internal.matchesRef.DD (fuel : Nat) (s : String) :
     if_true, if_false, Bool.false_eq_true, false_and, or_false, or_assoc, FormatSpec.matchesSym, IsDigits_matchesTerm,
     IsFixedDigits_matchesTerm, IsDigitsBetween_matchesTerm]
   simp (config := { maxSteps := 1000000 }) only [String.append_assoc, String.append_empty, exists_and_left, ← and_assoc,
-    exists_eq_left, exists_eq_left', exists_eq_right, and_true]
+    exists_eq_left, exists_eq_left', exists_eq_right, and_true, Option.some.injEq, forall_eq']
   try grind [String.append_assoc, String.append_empty]
 
 theorem Datetime.Internal.matchesRef.Date (fuel : Nat) (s : String) :
@@ -236,7 +236,7 @@ theorem Datetime.Internal.matchesRef.Date (fuel : Nat) (s : String) :
     if_true, if_false, Bool.false_eq_true, false_and, or_false, or_assoc, FormatSpec.matchesSym,
     Datetime.Internal.matchesRef.YYYY, Datetime.Internal.matchesRef.MM, Datetime.Internal.matchesRef.DD]
   simp (config := { maxSteps := 1000000 }) only [String.append_assoc, String.append_empty, exists_and_left, ← and_assoc,
-    exists_eq_left, exists_eq_left', exists_eq_right, and_true]
+    exists_eq_left, exists_eq_left', exists_eq_right, and_true, Option.some.injEq, forall_eq']
   try grind [String.append_assoc, String.append_empty]
 
 theorem Datetime.Internal.matchesRef.hh (fuel : Nat) (s : String) :
@@ -254,7 +254,7 @@ theorem Datetime.Internal.matchesRef.hh (fuel : Nat) (s : String) :
     if_true, if_false, Bool.false_eq_true, false_and, or_false, or_assoc, FormatSpec.matchesSym, IsDigits_matchesTerm,
     IsFixedDigits_matchesTerm, IsDigitsBetween_matchesTerm]
   simp (config := { maxSteps := 1000000 }) only [String.append_assoc, String.append_empty, exists_and_left, ← and_assoc,
-    exists_eq_left, exists_eq_left', exists_eq_right, and_true]
+    exists_eq_left, exists_eq_left', exists_eq_right, and_true, Option.some.injEq, forall_eq']
   try grind [String.append_assoc, String.append_empty]
 
 theorem Datetime.Internal.matchesRef.mm (fuel : Nat) (s : String) :
@@ -272,7 +272,7 @@ theorem Datetime.Internal.matchesRef.mm (fuel : Nat) (s : String) :
     if_true, if_false, Bool.false_eq_true, false_and, or_false, or_assoc, FormatSpec.matchesSym, IsDigits_matchesTerm,
     IsFixedDigits_matchesTerm, IsDigitsBetween_matchesTerm]
   simp (config := { maxSteps := 1000000 }) only [String.append_assoc, String.append_empty, exists_and_left, ← and_assoc,
-    exists_eq_left, exists_eq_left', exists_eq_right, and_true]
+    exists_eq_left, exists_eq_left', exists_eq_right, and_true, Option.some.injEq, forall_eq']
   try grind [String.append_assoc, String.append_empty]
 
 theorem Datetime.Internal.matchesRef.ss (fuel : Nat) (s : String) :
@@ -290,7 +290,7 @@ theorem Datetime.Internal.matchesRef.ss (fuel : Nat) (s : String) :
     if_true, if_false, Bool.false_eq_true, false_and, or_false, or_assoc, FormatSpec.matchesSym, IsDigits_matchesTerm,
     IsFixedDigits_matchesTerm, IsDigitsBetween_matchesTerm]
   simp (config := { maxSteps := 1000000 }) only [String.append_assoc, String.append_empty, exists_and_left, ← and_assoc,
-    exists_eq_left, exists_eq_left', exists_eq_right, and_true]
+    exists_eq_left, exists_eq_left', exists_eq_right, and_true, Option.some.injEq, forall_eq']
   try grind [String.append_assoc, String.append_empty]
 
 theorem Datetime.Internal.matchesRef.Time (fuel : Nat) (s : String) :
@@ -311,7 +311,7 @@ theorem Datetime.Internal.matchesRef.Time (fuel : Nat) (s : String) :
     if_true, if_false, Bool.false_eq_true, false_and, or_false, or_assoc, FormatSpec.matchesSym,
     Datetime.Internal.matchesRef.hh, Datetime.Internal.matchesRef.mm, Datetime.Internal.matchesRef.ss]
   simp (config := { maxSteps := 1000000 }) only [String.append_assoc, String.append_empty, exists_and_left, ← and_assoc,
-    exists_eq_left, exists_eq_left', exists_eq_right, and_true]
+    exists_eq_left, exists_eq_left', exists_eq_right, and_true, Option.some.injEq, forall_eq']
   try grind [String.append_assoc, String.append_empty]
 
 theorem Datetime.Internal.matchesRef.SSS (fuel : Nat) (s : String) :
@@ -329,7 +329,7 @@ theorem Datetime.Internal.matchesRef.SSS (fuel : Nat) (s : String) :
     if_true, if_false, Bool.false_eq_true, false_and, or_false, or_assoc, FormatSpec.matchesSym, IsDigits_matchesTerm,
     IsFixedDigits_matchesTerm, IsDigitsBetween_matchesTerm]
   simp (config := { maxSteps := 1000000 }) only [String.append_assoc, String.append_empty, exists_and_left, ← and_assoc,
-    exists_eq_left, exists_eq_left', exists_eq_right, and_true]
+    exists_eq_left, exists_eq_left', exists_eq_right, and_true, Option.some.injEq, forall_eq']
   try grind [String.append_assoc, String.append_empty]
 
 theorem Datetime.Internal.matchesRef.Offset (fuel : Nat) (s : String) :
@@ -353,7 +353,7 @@ theorem Datetime.Internal.matchesRef.Offset (fuel : Nat) (s : String) :
     first
     | apply or_congr
     | ( simp (config := { maxSteps := 1000000 }) only [String.append_assoc, String.append_empty, exists_and_left,
-          ← and_assoc, exists_eq_left, exists_eq_left', exists_eq_right, and_true]
+          ← and_assoc, exists_eq_left, exists_eq_left', exists_eq_right, and_true, Option.some.injEq, forall_eq']
         try grind [String.append_assoc, String.append_empty])
 
 theorem Datetime.Internal.matchesRef.Datetime (fuel : Nat) (s : String) :
@@ -385,7 +385,7 @@ theorem Datetime.Internal.matchesRef.Datetime (fuel : Nat) (s : String) :
     first
     | apply or_congr
     | ( simp (config := { maxSteps := 1000000 }) only [String.append_assoc, String.append_empty, exists_and_left,
-          ← and_assoc, exists_eq_left, exists_eq_left', exists_eq_right, and_true]
+          ← and_assoc, exists_eq_left, exists_eq_left', exists_eq_right, and_true, Option.some.injEq, forall_eq']
         try grind [String.append_assoc, String.append_empty])
 
 theorem Datetime.IsWf_equiv (s : String) : IsWf Datetime.grammar s ↔ Datetime.IsWf.Datetime s :=
@@ -456,7 +456,7 @@ theorem Datetime.IsWf_equiv (s : String) : IsWf Datetime.grammar s ↔ Datetime.
   exact Datetime.Internal.matchesRef.Datetime _ s
 
 instance Datetime.instDecidableIsWf : DecidablePred Datetime.IsWf.Datetime := fun s =>
-  decidable_of_iff _ (Datetime.IsWf_equiv s)
+  @decidable_of_iff _ _ (Datetime.IsWf_equiv s) (FormatSpec.decIsWf Datetime.grammar (by decide) s)
 
 instance Datetime.instDecidableSatisfiesConstraints : DecidablePred Datetime.SatisfiesConstraints := fun s => by
   simp only [Datetime.SatisfiesConstraints, Datetime.Constraints]; exact inferInstance
@@ -467,7 +467,7 @@ theorem Datetime.IsValid_equiv (s : String) : Datetime.IsValid s ↔ Datetime.is
   by
   unfold Datetime.IsValid Datetime.isValid Datetime.isWf Datetime.satisfiesConstraints
   unfold FormatSpec.isWf FormatSpec.satisfiesConstraints
-  rw [← Datetime.IsWf_equiv, ← decodeSome_iff_IsWf]
+  rw [← Datetime.IsWf_equiv, ← decodeSome_iff_IsWf Datetime.grammar (by decide)]
   unfold Datetime.SatisfiesConstraints Datetime.Constraints Datetime.constraints
   simp only [FormatSpec.component, List.forall_mem_cons, List.forall_mem_singleton, List.not_mem_nil, forall_const,
     if_true, if_false, ConstraintEntry.wfPart, ConstraintEntry.valPart, Constraint.wfPart, Constraint.valPart,

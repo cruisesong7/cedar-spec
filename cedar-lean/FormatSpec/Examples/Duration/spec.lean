@@ -152,7 +152,7 @@ theorem Duration.Internal.matchesRef.DDays (fuel : Nat) (s : String) :
     if_true, if_false, Bool.false_eq_true, false_and, or_false, or_assoc, FormatSpec.matchesSym, IsDigits_matchesTerm,
     IsFixedDigits_matchesTerm, IsDigitsBetween_matchesTerm]
   simp (config := { maxSteps := 1000000 }) only [String.append_assoc, String.append_empty, exists_and_left, ← and_assoc,
-    exists_eq_left, exists_eq_left', exists_eq_right, and_true]
+    exists_eq_left, exists_eq_left', exists_eq_right, and_true, Option.some.injEq, forall_eq']
   try grind [String.append_assoc, String.append_empty]
 
 theorem Duration.Internal.matchesRef.Days (fuel : Nat) (s : String) :
@@ -170,7 +170,7 @@ theorem Duration.Internal.matchesRef.Days (fuel : Nat) (s : String) :
     if_true, if_false, Bool.false_eq_true, false_and, or_false, or_assoc, FormatSpec.matchesSym,
     Duration.Internal.matchesRef.DDays]
   simp (config := { maxSteps := 1000000 }) only [String.append_assoc, String.append_empty, exists_and_left, ← and_assoc,
-    exists_eq_left, exists_eq_left', exists_eq_right, and_true]
+    exists_eq_left, exists_eq_left', exists_eq_right, and_true, Option.some.injEq, forall_eq']
   try grind [String.append_assoc, String.append_empty]
 
 theorem Duration.Internal.matchesRef.DHours (fuel : Nat) (s : String) :
@@ -188,7 +188,7 @@ theorem Duration.Internal.matchesRef.DHours (fuel : Nat) (s : String) :
     if_true, if_false, Bool.false_eq_true, false_and, or_false, or_assoc, FormatSpec.matchesSym, IsDigits_matchesTerm,
     IsFixedDigits_matchesTerm, IsDigitsBetween_matchesTerm]
   simp (config := { maxSteps := 1000000 }) only [String.append_assoc, String.append_empty, exists_and_left, ← and_assoc,
-    exists_eq_left, exists_eq_left', exists_eq_right, and_true]
+    exists_eq_left, exists_eq_left', exists_eq_right, and_true, Option.some.injEq, forall_eq']
   try grind [String.append_assoc, String.append_empty]
 
 theorem Duration.Internal.matchesRef.Hours (fuel : Nat) (s : String) :
@@ -206,7 +206,7 @@ theorem Duration.Internal.matchesRef.Hours (fuel : Nat) (s : String) :
     if_true, if_false, Bool.false_eq_true, false_and, or_false, or_assoc, FormatSpec.matchesSym,
     Duration.Internal.matchesRef.DHours]
   simp (config := { maxSteps := 1000000 }) only [String.append_assoc, String.append_empty, exists_and_left, ← and_assoc,
-    exists_eq_left, exists_eq_left', exists_eq_right, and_true]
+    exists_eq_left, exists_eq_left', exists_eq_right, and_true, Option.some.injEq, forall_eq']
   try grind [String.append_assoc, String.append_empty]
 
 theorem Duration.Internal.matchesRef.DMinutes (fuel : Nat) (s : String) :
@@ -224,7 +224,7 @@ theorem Duration.Internal.matchesRef.DMinutes (fuel : Nat) (s : String) :
     if_true, if_false, Bool.false_eq_true, false_and, or_false, or_assoc, FormatSpec.matchesSym, IsDigits_matchesTerm,
     IsFixedDigits_matchesTerm, IsDigitsBetween_matchesTerm]
   simp (config := { maxSteps := 1000000 }) only [String.append_assoc, String.append_empty, exists_and_left, ← and_assoc,
-    exists_eq_left, exists_eq_left', exists_eq_right, and_true]
+    exists_eq_left, exists_eq_left', exists_eq_right, and_true, Option.some.injEq, forall_eq']
   try grind [String.append_assoc, String.append_empty]
 
 theorem Duration.Internal.matchesRef.Minutes (fuel : Nat) (s : String) :
@@ -242,7 +242,7 @@ theorem Duration.Internal.matchesRef.Minutes (fuel : Nat) (s : String) :
     if_true, if_false, Bool.false_eq_true, false_and, or_false, or_assoc, FormatSpec.matchesSym,
     Duration.Internal.matchesRef.DMinutes]
   simp (config := { maxSteps := 1000000 }) only [String.append_assoc, String.append_empty, exists_and_left, ← and_assoc,
-    exists_eq_left, exists_eq_left', exists_eq_right, and_true]
+    exists_eq_left, exists_eq_left', exists_eq_right, and_true, Option.some.injEq, forall_eq']
   try grind [String.append_assoc, String.append_empty]
 
 theorem Duration.Internal.matchesRef.DSeconds (fuel : Nat) (s : String) :
@@ -260,7 +260,7 @@ theorem Duration.Internal.matchesRef.DSeconds (fuel : Nat) (s : String) :
     if_true, if_false, Bool.false_eq_true, false_and, or_false, or_assoc, FormatSpec.matchesSym, IsDigits_matchesTerm,
     IsFixedDigits_matchesTerm, IsDigitsBetween_matchesTerm]
   simp (config := { maxSteps := 1000000 }) only [String.append_assoc, String.append_empty, exists_and_left, ← and_assoc,
-    exists_eq_left, exists_eq_left', exists_eq_right, and_true]
+    exists_eq_left, exists_eq_left', exists_eq_right, and_true, Option.some.injEq, forall_eq']
   try grind [String.append_assoc, String.append_empty]
 
 theorem Duration.Internal.matchesRef.Seconds (fuel : Nat) (s : String) :
@@ -278,7 +278,7 @@ theorem Duration.Internal.matchesRef.Seconds (fuel : Nat) (s : String) :
     if_true, if_false, Bool.false_eq_true, false_and, or_false, or_assoc, FormatSpec.matchesSym,
     Duration.Internal.matchesRef.DSeconds]
   simp (config := { maxSteps := 1000000 }) only [String.append_assoc, String.append_empty, exists_and_left, ← and_assoc,
-    exists_eq_left, exists_eq_left', exists_eq_right, and_true]
+    exists_eq_left, exists_eq_left', exists_eq_right, and_true, Option.some.injEq, forall_eq']
   try grind [String.append_assoc, String.append_empty]
 
 theorem Duration.Internal.matchesRef.DMillis (fuel : Nat) (s : String) :
@@ -296,7 +296,7 @@ theorem Duration.Internal.matchesRef.DMillis (fuel : Nat) (s : String) :
     if_true, if_false, Bool.false_eq_true, false_and, or_false, or_assoc, FormatSpec.matchesSym, IsDigits_matchesTerm,
     IsFixedDigits_matchesTerm, IsDigitsBetween_matchesTerm]
   simp (config := { maxSteps := 1000000 }) only [String.append_assoc, String.append_empty, exists_and_left, ← and_assoc,
-    exists_eq_left, exists_eq_left', exists_eq_right, and_true]
+    exists_eq_left, exists_eq_left', exists_eq_right, and_true, Option.some.injEq, forall_eq']
   try grind [String.append_assoc, String.append_empty]
 
 theorem Duration.Internal.matchesRef.Millis (fuel : Nat) (s : String) :
@@ -314,7 +314,7 @@ theorem Duration.Internal.matchesRef.Millis (fuel : Nat) (s : String) :
     if_true, if_false, Bool.false_eq_true, false_and, or_false, or_assoc, FormatSpec.matchesSym,
     Duration.Internal.matchesRef.DMillis]
   simp (config := { maxSteps := 1000000 }) only [String.append_assoc, String.append_empty, exists_and_left, ← and_assoc,
-    exists_eq_left, exists_eq_left', exists_eq_right, and_true]
+    exists_eq_left, exists_eq_left', exists_eq_right, and_true, Option.some.injEq, forall_eq']
   try grind [String.append_assoc, String.append_empty]
 
 theorem Duration.Internal.matchesRef.Components (fuel : Nat) (s : String) :
@@ -336,7 +336,7 @@ theorem Duration.Internal.matchesRef.Components (fuel : Nat) (s : String) :
     FormatSpec.matchesSym, Duration.Internal.matchesRef.Days, Duration.Internal.matchesRef.Hours,
     Duration.Internal.matchesRef.Minutes, Duration.Internal.matchesRef.Seconds, Duration.Internal.matchesRef.Millis]
   simp (config := { maxSteps := 1000000 }) only [String.append_assoc, String.append_empty, exists_and_left, ← and_assoc,
-    exists_eq_left, exists_eq_left', exists_eq_right, and_true]
+    exists_eq_left, exists_eq_left', exists_eq_right, and_true, Option.some.injEq, forall_eq']
   try grind [String.append_assoc, String.append_empty]
 
 theorem Duration.Internal.matchesRef.Duration (fuel : Nat) (s : String) :
@@ -354,7 +354,7 @@ theorem Duration.Internal.matchesRef.Duration (fuel : Nat) (s : String) :
     if_true, if_false, Bool.false_eq_true, false_and, or_false, or_assoc, FormatSpec.matchesSym,
     Duration.Internal.matchesRef.Components]
   simp (config := { maxSteps := 1000000 }) only [String.append_assoc, String.append_empty, exists_and_left, ← and_assoc,
-    exists_eq_left, exists_eq_left', exists_eq_right, and_true]
+    exists_eq_left, exists_eq_left', exists_eq_right, and_true, Option.some.injEq, forall_eq']
   try grind [String.append_assoc, String.append_empty]
 
 theorem Duration.IsWf_equiv (s : String) : IsWf Duration.grammar s ↔ Duration.IsWf.Duration s :=
@@ -384,7 +384,7 @@ theorem Duration.IsWf_equiv (s : String) : IsWf Duration.grammar s ↔ Duration.
   exact Duration.Internal.matchesRef.Duration _ s
 
 instance Duration.instDecidableIsWf : DecidablePred Duration.IsWf.Duration := fun s =>
-  decidable_of_iff _ (Duration.IsWf_equiv s)
+  @decidable_of_iff _ _ (Duration.IsWf_equiv s) (FormatSpec.decIsWf Duration.grammar (by decide) s)
 
 instance Duration.instDecidableSatisfiesConstraints : DecidablePred Duration.SatisfiesConstraints := fun s => by
   simp only [Duration.SatisfiesConstraints, Duration.Constraints, Duration.value]; exact inferInstance
@@ -395,7 +395,7 @@ theorem Duration.IsValid_equiv (s : String) : Duration.IsValid s ↔ Duration.is
   by
   unfold Duration.IsValid Duration.isValid Duration.isWf Duration.satisfiesConstraints
   unfold FormatSpec.isWf FormatSpec.satisfiesConstraints
-  rw [← Duration.IsWf_equiv, ← decodeSome_iff_IsWf]
+  rw [← Duration.IsWf_equiv, ← decodeSome_iff_IsWf Duration.grammar (by decide)]
   unfold Duration.SatisfiesConstraints Duration.Constraints Duration.constraints Duration.value Duration.valueExpr
   simp only [FormatSpec.component, List.forall_mem_cons, List.forall_mem_singleton, List.not_mem_nil, forall_const,
     if_true, if_false, ConstraintEntry.wfPart, ConstraintEntry.valPart, Constraint.wfPart, Constraint.valPart,

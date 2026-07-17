@@ -69,6 +69,13 @@ inductive Sym where
   | ref (name : String)
   /-- An inline terminal: a token run of class `tok`, length-constrained by `len`. -/
   | term (tok : TokClass) (len : LenSpec)
+  /-- A **separated repetition** of `item`: `item (sep item)*`, i.e. one or more `item`s
+      joined by the literal separator `sep`, with the *number of items* constrained to
+      `[lo, hi]` (`hi = none` ⟹ unbounded — an infinite language). This is the sole site
+      of GROUP iteration (as opposed to `LenSpec`, which iterates a single leaf token run):
+      IPv6 groups `H16 (':' H16){7}`, semver dot-lists, domain labels, CSV rows. `item` is a
+      strict subterm, so the denotation/decoder recurse into it structurally. -/
+  | rep (sep : String) (item : Sym) (lo : Nat) (hi : Option Nat)
   deriving Repr, DecidableEq, Inhabited
 
 /-- One right-hand-side symbol together with whether it is optional (the `[X]` of
@@ -109,11 +116,37 @@ end Grammar
 
 namespace Sym
 
-/-- The referenced nonterminal name, if this symbol is a `ref`. -/
+/-- The referenced nonterminal name, if this symbol is a DIRECT `ref`. (A `rep` wrapping a
+    ref is not a direct ref — use `allRefs` to see through repetition.) -/
 def refName? : Sym → Option String
   | .ref n => some n
   | _      => none
 
+/-- Every nonterminal referenced by this symbol, INCLUDING those nested inside a `rep`'s
+    item. Used by the classifier so acyclicity / ref-resolution see through repetition
+    (a `rep ":" (ref "H16") …` really does reference `H16`). -/
+def allRefs : Sym → List String
+  | .ref n           => [n]
+  | .rep _ item _ _  => item.allRefs
+  | _                => []
+
+/-- Every `rep` in this symbol is in the class where the reference decoder and the
+    denotation provably agree: (1) a **non-empty separator** — an empty separator is
+    degenerate for a *separated* list (the denotation would admit repetitions the decoder can
+    never enumerate, e.g. arbitrarily many empty items); and (2) **at least one required
+    item** (`1 ≤ lo`) — the decoder's `matchRep` structurally matches `item (sep item)*`, so
+    it always consumes ≥ 1 item and can never produce the zero-item match that `lo = 0` would
+    admit denotationally. The DSL rejects both degenerate cases at parse time, so this holds
+    for every generated grammar; it is a `Bool` so concrete grammars discharge it by `decide`. -/
+def repOk : Sym → Bool
+  | .rep sep item lo _ => sep ≠ "" && decide (1 ≤ lo) && item.repOk
+  | _                  => true
+
 end Sym
+
+/-- Every `rep` in the grammar is in the decoder-agreeing class (see `Sym.repOk`). Decidable;
+    the hypothesis under which `decode` and `IsWf` provably agree. -/
+def Grammar.repOk (g : Grammar) : Bool :=
+  g.prods.all (fun p => p.alts.all (fun alt => alt.all (fun it => it.sym.repOk)))
 
 end FormatSpec

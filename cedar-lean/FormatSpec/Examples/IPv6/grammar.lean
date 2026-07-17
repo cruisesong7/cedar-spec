@@ -19,7 +19,7 @@ import FormatSpec.Decode
 import FormatSpec.Roundtrip
 
 /-!
-# IPv6 example — `hexDigit`, and the fixed-arity BOUNDARY of the tool
+# IPv6 example — `hexDigit` and GROUP repetition (`rep … sepBy …`)
 
 Transcribes the IPv6 fragment of `doc/CedarDoc/IPAddr.lean`. The full grammar is
 ```
@@ -28,27 +28,26 @@ V6Addr ::= H16 (':' H16){7}                        -- 8 groups, no '::'
 H16    ::= HexDigit{1,4}     -- value ≤ 0xffff (automatic from ≤ 4 hex digits)
 ```
 
-This example exercises the `hexDigit` terminal (unused by the others); the `H16 ≤ 0xffff`
-bound is automatic from `hexDigit{1,4}` (≤ 4 hex digits), so the grammar alone captures it.
+The first alternative — the full **eight-group** form — is now expressed DIRECTLY with the
+`rep` combinator: `rep H16 sepBy ":" {8}` = eight `H16`s joined by `":"`. This is a single
+grammar node (a repeated *group*, not eight unrolled refs), so it decodes, reconciles, and
+proves at a fixed cost independent of the count — the earlier 4-group truncation (a scaling
+wall in the old unroll-everything closer) is GONE. The `H16 ≤ 0xffff` bound is automatic from
+`hexDigit{1,4}` (≤ 4 hex digits), so the grammar alone captures it.
 
-TWO honest truncations vs the full grammar:
+ONE honest truncation remains vs the full grammar:
 
-1. **The `::` (gap) form is OMITTED** — a VARIABLE-ARITY production (a variable *number* of
-   `:`-separated `H16` groups on each side of `::`). The grammar DSL is fixed-arity by design
-   (its only repetition is a leaf token run — `hexDigit{1,4}` — never a repeated *group*), so
-   `::` is out of scope by construction. This is exactly the case the design (§5–§6) flags for
-   a hand-written `decode`: the tool cannot synthesize it and would prompt the author for the
-   decoder, rather than mis-specifying it.
+* **The `::` (gap) form is OMITTED.** It is a two-sided variable-arity form
+  (`[H16 (':' H16)*] '::' [H16 (':' H16)*]`) whose split point across the fixed `::` boundary
+  is not a single separated list — it needs the item counts on BOTH sides plus the "sides
+  total < 8" cross-constraint. `rep` covers one separated list; the two-sided `::` split is
+  the case the design (§5–§6) flags for a hand-written `decode`. Expressing it would need
+  either an alternation of fixed splits or a second repetition primitive; out of scope here.
 
-2. **The group count is 4, not the real 8.** The auto-emitted `IsWf_equiv` reconciliation proof
-   uses a uniform `simp`-normalization closer that does not yet scale past ~5 flat group-refs
-   in one sequence (the nested-existential normalization blows up in `whnf`). At 8 groups it
-   exceeds any reasonable heartbeat budget. So this example uses a 4-group `V6Addr` — fully
-   representative of the `hexDigit`/fixed-arity behavior — and this limit is a KNOWN, recorded
-   scaling boundary of the current closer (not a soundness issue; the proof that DOES emit is
-   axiom-clean). Scaling the closer to 8+ groups is a separate improvement.
-
-Writes `spec.lean` beside this file.
+Note the `rep` well-formedness side conditions the generator enforces (see `Sym.repOk` /
+`FormatSpec.decodeSome_iff_IsWf`): the separator must be non-empty and the lower bound ≥ 1.
+Both hold here (`":"`, `{8}`); the DSL rejects violations at parse time. Writes `spec.lean`
+beside this file.
 -/
 
 namespace FormatSpec.Examples.IPv6
@@ -56,17 +55,17 @@ open FormatSpec
 
 format_spec IPv6 where
   grammar
-    V6Addr ::= H16 ":" H16 ":" H16 ":" H16
+    V6Addr ::= rep H16 sepBy ":" {8}
     H16    ::= hexDigit{1,4}
   to "FormatSpec/Examples/IPv6"
 
 #check (IPv6.IsWf.V6Addr : String → Prop)
 
-#eval decide (IPv6.IsWf.V6Addr "1:2:3:4")        -- true
-#eval decide (IPv6.IsWf.V6Addr "2001:db8:0:1")   -- true (case-insensitive hex)
-#eval decide (IPv6.IsWf.V6Addr "1:2:3")          -- false (3 groups — grammar)
-#eval decide (IPv6.IsWf.V6Addr "1:2:3:12345")    -- false (5 hex digits > 4)
-#eval decide (IPv6.IsWf.V6Addr "1::4")           -- false (`::` out of scope)
+#eval decide (IPv6.IsWf.V6Addr "1:2:3:4:5:6:7:8")          -- true (8 groups)
+#eval decide (IPv6.IsWf.V6Addr "2001:db8:0:0:0:0:0:1")     -- true (case-insensitive hex)
+#eval decide (IPv6.IsWf.V6Addr "1:2:3:4")                  -- false (4 groups ≠ 8)
+#eval decide (IPv6.IsWf.V6Addr "1:2:3:4:5:6:7:12345")      -- false (5 hex digits > 4)
+#eval decide (IPv6.IsWf.V6Addr "1::4")                     -- false (`::` out of scope)
 
 #check (IPv6.IsWf_equiv : ∀ s, IsWf IPv6.grammar s ↔ IPv6.IsWf.V6Addr s)
 example : DecidablePred IPv6.IsWf.V6Addr := inferInstance
