@@ -111,6 +111,12 @@ theorem IsDigitsBetween_matchesTerm (lo hi : Nat) (s : String) :
     matchesTerm TokClass.digit (LenSpec.between lo hi) s = IsDigitsBetween lo hi s := rfl
 theorem IsHexDigitsBetween_matchesTerm (lo hi : Nat) (s : String) :
     matchesTerm TokClass.hexDigit (LenSpec.between lo hi) s = IsHexDigitsBetween lo hi s := rfl
+theorem IsBits_matchesTerm (s : String) :
+    matchesTerm TokClass.bit LenSpec.atLeastOne s = IsBits s := rfl
+theorem IsFixedBits_matchesTerm (n : Nat) (s : String) :
+    matchesTerm TokClass.bit (LenSpec.exactly n) s = IsFixedBits n s := rfl
+theorem IsBitsBetween_matchesTerm (lo hi : Nat) (s : String) :
+    matchesTerm TokClass.bit (LenSpec.between lo hi) s = IsBitsBetween lo hi s := rfl
 
 /-! ## Reader agreement (surface component-string readers ⟺ `Env` readers)
 

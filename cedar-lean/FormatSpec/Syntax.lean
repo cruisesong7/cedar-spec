@@ -82,6 +82,7 @@ declare_syntax_cat fmtItem
 syntax str                : fmtItem  -- literal
 syntax "digit" fmtLen     : fmtItem  -- decimal terminal
 syntax "hexDigit" fmtLen  : fmtItem  -- hex terminal
+syntax "bit" fmtLen       : fmtItem  -- binary terminal (`0`/`1`)
 syntax ident              : fmtItem  -- nonterminal reference
 syntax "[" fmtItem "]"    : fmtItem  -- optional
 -- separated GROUP repetition: `rep H16 sepBy ":" {8}` = eight `H16`s joined by `":"`
@@ -182,6 +183,7 @@ partial def elabSym : TSyntax `fmtItem → CommandElabM (TSyntax `term)
   | `(fmtItem| $s:str)            => `(Sym.lit $s)
   | `(fmtItem| digit $l:fmtLen)   => do `(Sym.term TokClass.digit $(← elabLen l))
   | `(fmtItem| hexDigit $l:fmtLen) => do `(Sym.term TokClass.hexDigit $(← elabLen l))
+  | `(fmtItem| bit $l:fmtLen)     => do `(Sym.term TokClass.bit $(← elabLen l))
   | `(fmtItem| rep $inner:fmtItem sepBy $sep:str $l:fmtLen) => do
       if sep.getString.isEmpty then
         throwErrorAt sep "repetition separator must be non-empty (an empty separator makes the \
@@ -239,6 +241,7 @@ partial def parseSym : TSyntax `fmtItem → CommandElabM Sym
   | `(fmtItem| $s:str)             => pure (.lit s.getString)
   | `(fmtItem| digit $l:fmtLen)    => do pure (.term .digit (← parseLen l))
   | `(fmtItem| hexDigit $l:fmtLen) => do pure (.term .hexDigit (← parseLen l))
+  | `(fmtItem| bit $l:fmtLen)      => do pure (.term .bit (← parseLen l))
   | `(fmtItem| rep $inner:fmtItem sepBy $sep:str $l:fmtLen) => do
       if sep.getString.isEmpty then
         throwErrorAt sep "repetition separator must be non-empty (an empty separator makes the \

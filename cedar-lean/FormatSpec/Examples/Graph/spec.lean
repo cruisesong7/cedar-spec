@@ -20,45 +20,37 @@ set_option linter.unusedVariables false
 -- VALID iff it satisfies the grammar and constraints — Cedar's wording).
 
 def Graph.grammar : Grammar :=
-  Grammar.mk "G"
-    [Production.mk "G"
-        [[SymItem.mk (Sym.ref "E01") false, SymItem.mk (Sym.lit " ") false, SymItem.mk (Sym.ref "E02") false,
-            SymItem.mk (Sym.lit " ") false, SymItem.mk (Sym.ref "E12") false]],
-      Production.mk "E01" [[SymItem.mk (Sym.lit "0") false], [SymItem.mk (Sym.lit "1") false]],
-      Production.mk "E02" [[SymItem.mk (Sym.lit "0") false], [SymItem.mk (Sym.lit "1") false]],
-      Production.mk "E12" [[SymItem.mk (Sym.lit "0") false], [SymItem.mk (Sym.lit "1") false]]]
+  Grammar.mk "Adj"
+    [Production.mk "Adj" [[SymItem.mk (Sym.ref "Cells") false]],
+      Production.mk "Cells" [[SymItem.mk (Sym.term TokClass.bit LenSpec.atLeastOne) false]]]
 
-def Graph.IsWf.E01 (s : String) : Prop :=
-  s = "0" ∨ s = "1"
+def Graph.IsWf.Cells (s : String) : Prop :=
+  IsBits s
 
-def Graph.IsWf.E02 (s : String) : Prop :=
-  s = "0" ∨ s = "1"
+def Graph.IsWf.Adj (s : String) : Prop :=
+  Graph.IsWf.Cells s
 
-def Graph.IsWf.E12 (s : String) : Prop :=
-  s = "0" ∨ s = "1"
+def Graph.value (cells : String) :=
+  toGraph cells
 
-def Graph.IsWf.G (s : String) : Prop :=
-  ∃ e01 e02 e12, ((s = e01 ++ " " ++ e02 ++ " " ++ e12 ∧ Graph.IsWf.E01 e01) ∧ Graph.IsWf.E02 e02) ∧ Graph.IsWf.E12 e12
+def Graph.Constraints (cells : String) : Prop :=
+  isTriangular cells = true
 
-def Graph.value (e01 : String) (e02 : String) (e12 : String) :=
-  toGraph3 e01 e02 e12
-
-abbrev Graph.SatisfiesConstraints (s : String) : Prop :=
-  True
+def Graph.SatisfiesConstraints (s : String) : Prop :=
+  Graph.Constraints (FormatSpec.component Graph.grammar s "Cells")
 
 abbrev Graph.IsValid (s : String) : Prop :=
-  Graph.IsWf.G s ∧ Graph.SatisfiesConstraints s
+  Graph.IsWf.Adj s ∧ Graph.SatisfiesConstraints s
 
 -- ══════════════════════════════ engine ══════════════════════════════
 -- The analyzable/executable machinery behind the spec: the deep-embedded
 -- value/constraint ASTs and the decode-backed interpreter bundle (`isWf`,
 -- `isValid`, `computeValue`).
 
-def Graph.valueFn := fun env : Env =>
-  toGraph3 (((env : Env) "E01").getD "") (((env : Env) "E02").getD "") (((env : Env) "E12").getD "")
+def Graph.valueFn := fun env : Env => toGraph (((env : Env) "Cells").getD "")
 
 def Graph.constraints : List ConstraintEntry :=
-  []
+  [ConstraintEntry.opaque fun env : Env => isTriangular (((env : Env) "Cells").getD "")]
 
 abbrev Graph.isWf (s : String) : Prop :=
   FormatSpec.isWf Graph.grammar Graph.constraints s
@@ -77,127 +69,64 @@ def Graph.computeValue (s : String) :=
 -- `IsWf_equiv` (+ its `Internal.matchesRef.*` lemmas) and the derived
 -- `DecidablePred IsWf.*` instance (an executable validator, via the interpreter).
 
-theorem Graph.Internal.matchesRef.E01 (fuel : Nat) (s : String) :
-    matchesSym Graph.grammar (fuel + 1) (Sym.ref "E01") s ↔ Graph.IsWf.E01 s :=
+theorem Graph.Internal.matchesRef.Cells (fuel : Nat) (s : String) :
+    matchesSym Graph.grammar (fuel + 1) (Sym.ref "Cells") s ↔ Graph.IsWf.Cells s :=
   by
   rw [matchesSym,
     show
-      (Graph.grammar).prod? "E01" =
-        some (Production.mk "E01" [[SymItem.mk (Sym.lit "0") false], [SymItem.mk (Sym.lit "1") false]])
-      from rfl]
-  dsimp only
-  unfold matchesProd Graph.IsWf.E01
-  simp (config := { maxSteps := 1000000 }) only [List.mem_cons, List.mem_singleton, List.not_mem_nil,
-    FormatSpec.matchesSeq.eq_1, FormatSpec.matchesSeq.eq_2, exists_eq_or_imp, exists_eq_left, exists_eq_left, if_true,
-    if_false, Bool.false_eq_true, false_and, or_false, or_assoc, FormatSpec.matchesSym]
-  repeat'
-    first
-    | apply or_congr
-    | ( simp (config := { maxSteps := 1000000 }) only [String.append_assoc, String.append_empty, exists_and_left,
-          ← and_assoc, exists_eq_left, exists_eq_left', exists_eq_right, and_true, Option.some.injEq, forall_eq']
-        try grind [String.append_assoc, String.append_empty])
-
-theorem Graph.Internal.matchesRef.E02 (fuel : Nat) (s : String) :
-    matchesSym Graph.grammar (fuel + 1) (Sym.ref "E02") s ↔ Graph.IsWf.E02 s :=
-  by
-  rw [matchesSym,
-    show
-      (Graph.grammar).prod? "E02" =
-        some (Production.mk "E02" [[SymItem.mk (Sym.lit "0") false], [SymItem.mk (Sym.lit "1") false]])
-      from rfl]
-  dsimp only
-  unfold matchesProd Graph.IsWf.E02
-  simp (config := { maxSteps := 1000000 }) only [List.mem_cons, List.mem_singleton, List.not_mem_nil,
-    FormatSpec.matchesSeq.eq_1, FormatSpec.matchesSeq.eq_2, exists_eq_or_imp, exists_eq_left, exists_eq_left, if_true,
-    if_false, Bool.false_eq_true, false_and, or_false, or_assoc, FormatSpec.matchesSym]
-  repeat'
-    first
-    | apply or_congr
-    | ( simp (config := { maxSteps := 1000000 }) only [String.append_assoc, String.append_empty, exists_and_left,
-          ← and_assoc, exists_eq_left, exists_eq_left', exists_eq_right, and_true, Option.some.injEq, forall_eq']
-        try grind [String.append_assoc, String.append_empty])
-
-theorem Graph.Internal.matchesRef.E12 (fuel : Nat) (s : String) :
-    matchesSym Graph.grammar (fuel + 1) (Sym.ref "E12") s ↔ Graph.IsWf.E12 s :=
-  by
-  rw [matchesSym,
-    show
-      (Graph.grammar).prod? "E12" =
-        some (Production.mk "E12" [[SymItem.mk (Sym.lit "0") false], [SymItem.mk (Sym.lit "1") false]])
-      from rfl]
-  dsimp only
-  unfold matchesProd Graph.IsWf.E12
-  simp (config := { maxSteps := 1000000 }) only [List.mem_cons, List.mem_singleton, List.not_mem_nil,
-    FormatSpec.matchesSeq.eq_1, FormatSpec.matchesSeq.eq_2, exists_eq_or_imp, exists_eq_left, exists_eq_left, if_true,
-    if_false, Bool.false_eq_true, false_and, or_false, or_assoc, FormatSpec.matchesSym]
-  repeat'
-    first
-    | apply or_congr
-    | ( simp (config := { maxSteps := 1000000 }) only [String.append_assoc, String.append_empty, exists_and_left,
-          ← and_assoc, exists_eq_left, exists_eq_left', exists_eq_right, and_true, Option.some.injEq, forall_eq']
-        try grind [String.append_assoc, String.append_empty])
-
-theorem Graph.Internal.matchesRef.G (fuel : Nat) (s : String) :
-    matchesSym Graph.grammar (fuel + 2) (Sym.ref "G") s ↔ Graph.IsWf.G s :=
-  by
-  rw [matchesSym,
-    show
-      (Graph.grammar).prod? "G" =
-        some
-          (Production.mk "G"
-            [[SymItem.mk (Sym.ref "E01") false, SymItem.mk (Sym.lit " ") false, SymItem.mk (Sym.ref "E02") false,
-                SymItem.mk (Sym.lit " ") false, SymItem.mk (Sym.ref "E12") false]])
+      (Graph.grammar).prod? "Cells" =
+        some (Production.mk "Cells" [[SymItem.mk (Sym.term TokClass.bit LenSpec.atLeastOne) false]])
       from rfl]
   dsimp only
   rw [matchesProd_single]
-  unfold Graph.IsWf.G
+  unfold Graph.IsWf.Cells
   simp (config := { maxSteps := 1000000 }) only [FormatSpec.matchesSeq.eq_1, FormatSpec.matchesSeq.eq_2, exists_eq_left,
-    if_true, if_false, Bool.false_eq_true, false_and, or_false, or_assoc, FormatSpec.matchesSym,
-    Graph.Internal.matchesRef.E01, Graph.Internal.matchesRef.E02, Graph.Internal.matchesRef.E12]
+    if_true, if_false, Bool.false_eq_true, false_and, or_false, or_assoc, FormatSpec.matchesSym, IsBits_matchesTerm,
+    IsFixedBits_matchesTerm, IsBitsBetween_matchesTerm]
   simp (config := { maxSteps := 1000000 }) only [String.append_assoc, String.append_empty, exists_and_left, ← and_assoc,
     exists_eq_left, exists_eq_left', exists_eq_right, and_true, Option.some.injEq, forall_eq']
   try grind [String.append_assoc, String.append_empty]
 
-theorem Graph.IsWf_equiv (s : String) : IsWf Graph.grammar s ↔ Graph.IsWf.G s :=
+theorem Graph.Internal.matchesRef.Adj (fuel : Nat) (s : String) :
+    matchesSym Graph.grammar (fuel + 2) (Sym.ref "Adj") s ↔ Graph.IsWf.Adj s :=
+  by
+  rw [matchesSym,
+    show (Graph.grammar).prod? "Adj" = some (Production.mk "Adj" [[SymItem.mk (Sym.ref "Cells") false]]) from rfl]
+  dsimp only
+  rw [matchesProd_single]
+  unfold Graph.IsWf.Adj
+  simp (config := { maxSteps := 1000000 }) only [FormatSpec.matchesSeq.eq_1, FormatSpec.matchesSeq.eq_2, exists_eq_left,
+    if_true, if_false, Bool.false_eq_true, false_and, or_false, or_assoc, FormatSpec.matchesSym,
+    Graph.Internal.matchesRef.Cells]
+  simp (config := { maxSteps := 1000000 }) only [String.append_assoc, String.append_empty, exists_and_left, ← and_assoc,
+    exists_eq_left, exists_eq_left', exists_eq_right, and_true, Option.some.injEq, forall_eq']
+  try grind [String.append_assoc, String.append_empty]
+
+theorem Graph.IsWf_equiv (s : String) : IsWf Graph.grammar s ↔ Graph.IsWf.Adj s :=
   by
   rw [isWf_eq_isWfProd_start, IsWfProd,
-    show
-      (Graph.grammar).prod? (Graph.grammar).start =
-        some
-          (Production.mk "G"
-            [[SymItem.mk (Sym.ref "E01") false, SymItem.mk (Sym.lit " ") false, SymItem.mk (Sym.ref "E02") false,
-                SymItem.mk (Sym.lit " ") false, SymItem.mk (Sym.ref "E12") false]])
+    show (Graph.grammar).prod? (Graph.grammar).start = some (Production.mk "Adj" [[SymItem.mk (Sym.ref "Cells") false]])
       from rfl]
   have hstart :
     ∀ n,
-      matchesProd Graph.grammar n
-          (Production.mk "G"
-            [[SymItem.mk (Sym.ref "E01") false, SymItem.mk (Sym.lit " ") false, SymItem.mk (Sym.ref "E02") false,
-                SymItem.mk (Sym.lit " ") false, SymItem.mk (Sym.ref "E12") false]])
-          s =
-        matchesSym Graph.grammar (n + 1) (Sym.ref "G") s :=
+      matchesProd Graph.grammar n (Production.mk "Adj" [[SymItem.mk (Sym.ref "Cells") false]]) s =
+        matchesSym Graph.grammar (n + 1) (Sym.ref "Adj") s :=
     by
     intro n
     rw [matchesSym,
-      show
-        (Graph.grammar).prod? "G" =
-          some
-            (Production.mk "G"
-              [[SymItem.mk (Sym.ref "E01") false, SymItem.mk (Sym.lit " ") false, SymItem.mk (Sym.ref "E02") false,
-                  SymItem.mk (Sym.lit " ") false, SymItem.mk (Sym.ref "E12") false]])
-        from rfl]
+      show (Graph.grammar).prod? "Adj" = some (Production.mk "Adj" [[SymItem.mk (Sym.ref "Cells") false]]) from rfl]
   show
-    matchesProd Graph.grammar (Graph.grammar).prods.length
-        (Production.mk "G"
-          [[SymItem.mk (Sym.ref "E01") false, SymItem.mk (Sym.lit " ") false, SymItem.mk (Sym.ref "E02") false,
-              SymItem.mk (Sym.lit " ") false, SymItem.mk (Sym.ref "E12") false]])
+    matchesProd Graph.grammar (Graph.grammar).prods.length (Production.mk "Adj" [[SymItem.mk (Sym.ref "Cells") false]])
         s ↔
       _
   rw [hstart]
-  exact Graph.Internal.matchesRef.G _ s
+  exact Graph.Internal.matchesRef.Adj _ s
 
-instance Graph.instDecidableIsWf : DecidablePred Graph.IsWf.G := fun s =>
+instance Graph.instDecidableIsWf : DecidablePred Graph.IsWf.Adj := fun s =>
   @decidable_of_iff _ _ (Graph.IsWf_equiv s) (FormatSpec.decIsWf Graph.grammar (by decide) s)
+
+instance Graph.instDecidableSatisfiesConstraints : DecidablePred Graph.SatisfiesConstraints := fun s => by
+  simp only [Graph.SatisfiesConstraints, Graph.Constraints]; exact inferInstance
 
 instance Graph.instDecidableIsValid : DecidablePred Graph.IsValid := fun s => inferInstanceAs (Decidable (_ ∧ _))
 
@@ -206,7 +135,7 @@ theorem Graph.IsValid_equiv (s : String) : Graph.IsValid s ↔ Graph.isValid s :
   unfold Graph.IsValid Graph.isValid Graph.isWf Graph.satisfiesConstraints
   unfold FormatSpec.isWf FormatSpec.satisfiesConstraints
   rw [← Graph.IsWf_equiv, ← decodeSome_iff_IsWf Graph.grammar (by decide)]
-  unfold Graph.SatisfiesConstraints Graph.constraints
+  unfold Graph.SatisfiesConstraints Graph.Constraints Graph.constraints
   simp only [FormatSpec.component, List.forall_mem_cons, List.forall_mem_singleton, List.not_mem_nil, forall_const,
     if_true, if_false, ConstraintEntry.wfPart, ConstraintEntry.valPart, Constraint.wfPart, Constraint.valPart,
     Constraint.isValueDependent, Constraint.eval, ValExpr.eval, presentCount, natOf_getD, intOf_getD, lenOf_getD,

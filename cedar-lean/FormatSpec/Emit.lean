@@ -51,10 +51,13 @@ def termPred (tok : TokClass) (ls : LenSpec) (v : TSyntax `term) : CommandElabM 
   match tok, ls with
   | .digit,    .atLeastOne    => `(IsDigits $v)
   | .hexDigit, .atLeastOne    => `(IsHexDigits $v)
+  | .bit,      .atLeastOne    => `(IsBits $v)
   | .digit,    .exactly n     => `(IsFixedDigits $(quote n) $v)
   | .hexDigit, .exactly n     => `(IsFixedHexDigits $(quote n) $v)
+  | .bit,      .exactly n     => `(IsFixedBits $(quote n) $v)
   | .digit,    .between lo hi => `(IsDigitsBetween $(quote lo) $(quote hi) $v)
   | .hexDigit, .between lo hi => `(IsHexDigitsBetween $(quote lo) $(quote hi) $v)
+  | .bit,      .between lo hi => `(IsBitsBetween $(quote lo) $(quote hi) $v)
 
 /-- Predicate that string `v` matches symbol `sym`. Refs resolve to the sibling
     per-production predicate `<specName>.IsWf.<Nt>`. -/
@@ -307,6 +310,7 @@ private partial def symLit : Sym → CommandElabM (TSyntax `term)
       let tokT ← match tok with
         | .digit    => `(TokClass.digit)
         | .hexDigit => `(TokClass.hexDigit)
+        | .bit      => `(TokClass.bit)
       let lsT ← match ls with
         | .exactly n    => `(LenSpec.exactly $(quote n))
         | .between lo hi => `(LenSpec.between $(quote lo) $(quote hi))
@@ -339,12 +343,19 @@ private def leafLemmasFor (p : Production) : List (TSyntax `term) := Id.run do
   let mut out : List (TSyntax `term) := []
   let mut haveDigits := false
   let mut haveHex := false
+  let mut haveBit := false
+  -- the terminal class of a symbol, seeing through a `rep` wrapper to its item
+  let rec tokOf : Sym → Option TokClass
+    | .term tok _     => some tok
+    | .rep _ item _ _ => tokOf item
+    | _               => none
   for alt in p.alts do
     for it in alt do
-      if let .term tok _ := it.sym then
-        match tok with
-        | .digit    => haveDigits := true
-        | .hexDigit => haveHex := true
+      match tokOf it.sym with
+      | some .digit    => haveDigits := true
+      | some .hexDigit => haveHex := true
+      | some .bit      => haveBit := true
+      | none           => pure ()
   -- Reference the leaf-collapse lemmas by (unresolved) name — they live in
   -- `FormatSpec.Reconcile`, which the GENERATED file imports; resolving them here would
   -- force an Emit→Reconcile import. Include all shapes per class; `simp only` ignores
@@ -356,6 +367,9 @@ private def leafLemmasFor (p : Production) : List (TSyntax `term) := Id.run do
   if haveHex then
     out := out ++ [mk "IsHexDigits_matchesTerm", mk "IsFixedHexDigits_matchesTerm",
       mk "IsHexDigitsBetween_matchesTerm"]
+  if haveBit then
+    out := out ++ [mk "IsBits_matchesTerm", mk "IsFixedBits_matchesTerm",
+      mk "IsBitsBetween_matchesTerm"]
   return out
 
 /-- The namespace the per-production reconciliation support lemmas live in:

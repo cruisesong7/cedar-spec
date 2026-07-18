@@ -42,6 +42,7 @@ namespace FormatSpec
 def TokClass.mem : TokClass → Char → Prop
   | .digit,    c => '0' ≤ c ∧ c ≤ '9'
   | .hexDigit, c => ('0' ≤ c ∧ c ≤ '9') ∨ ('a' ≤ c ∧ c ≤ 'f') ∨ ('A' ≤ c ∧ c ≤ 'F')
+  | .bit,      c => c = '0' ∨ c = '1'
 
 instance (tok : TokClass) : DecidablePred tok.mem := by
   intro c; cases tok <;> unfold TokClass.mem <;> infer_instance
@@ -82,23 +83,33 @@ at the corresponding `TokClass`/`LenSpec`, so the denotation semantics is unchan
 def IsDigits (s : String) : Prop := TokClass.digit.all s ∧ 1 ≤ s.length
 /-- `HexDigit⁺`: a non-empty run of hex digits. -/
 def IsHexDigits (s : String) : Prop := TokClass.hexDigit.all s ∧ 1 ≤ s.length
+/-- `Bit⁺`: a non-empty run of binary digits. -/
+def IsBits (s : String) : Prop := TokClass.bit.all s ∧ 1 ≤ s.length
 /-- `Digit{n}`: a decimal-digit string of exactly `n` characters. -/
 def IsFixedDigits (n : Nat) (s : String) : Prop := TokClass.digit.all s ∧ s.length = n
 /-- `HexDigit{n}`. -/
 def IsFixedHexDigits (n : Nat) (s : String) : Prop := TokClass.hexDigit.all s ∧ s.length = n
+/-- `Bit{n}`: a binary string of exactly `n` bits. -/
+def IsFixedBits (n : Nat) (s : String) : Prop := TokClass.bit.all s ∧ s.length = n
 /-- `Digit{lo,hi}`: a decimal-digit string of `lo`–`hi` characters. -/
 def IsDigitsBetween (lo hi : Nat) (s : String) : Prop :=
   TokClass.digit.all s ∧ lo ≤ s.length ∧ s.length ≤ hi
 /-- `HexDigit{lo,hi}`. -/
 def IsHexDigitsBetween (lo hi : Nat) (s : String) : Prop :=
   TokClass.hexDigit.all s ∧ lo ≤ s.length ∧ s.length ≤ hi
+/-- `Bit{lo,hi}`: a binary string of `lo`–`hi` bits. -/
+def IsBitsBetween (lo hi : Nat) (s : String) : Prop :=
+  TokClass.bit.all s ∧ lo ≤ s.length ∧ s.length ≤ hi
 
 instance (s : String) : Decidable (IsDigits s) := by unfold IsDigits; infer_instance
 instance (s : String) : Decidable (IsHexDigits s) := by unfold IsHexDigits; infer_instance
+instance (s : String) : Decidable (IsBits s) := by unfold IsBits; infer_instance
 instance (n : Nat) (s : String) : Decidable (IsFixedDigits n s) := by unfold IsFixedDigits; infer_instance
 instance (n : Nat) (s : String) : Decidable (IsFixedHexDigits n s) := by unfold IsFixedHexDigits; infer_instance
+instance (n : Nat) (s : String) : Decidable (IsFixedBits n s) := by unfold IsFixedBits; infer_instance
 instance (lo hi : Nat) (s : String) : Decidable (IsDigitsBetween lo hi s) := by unfold IsDigitsBetween; infer_instance
 instance (lo hi : Nat) (s : String) : Decidable (IsHexDigitsBetween lo hi s) := by unfold IsHexDigitsBetween; infer_instance
+instance (lo hi : Nat) (s : String) : Decidable (IsBitsBetween lo hi s) := by unfold IsBitsBetween; infer_instance
 
 mutual
 

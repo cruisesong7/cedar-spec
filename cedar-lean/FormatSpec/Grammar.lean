@@ -48,6 +48,8 @@ inductive TokClass where
   | digit
   /-- ASCII hex digits `0-9a-fA-F`. -/
   | hexDigit
+  /-- Binary digits `0`/`1` — the bit alphabet (adjacency-matrix strings, bitsets, flags). -/
+  | bit
   deriving Repr, DecidableEq, Inhabited
 
 /-- Length constraint on a terminal token run (the `Digit⁺` / `Digit{4}` / `Digit{1,4}`

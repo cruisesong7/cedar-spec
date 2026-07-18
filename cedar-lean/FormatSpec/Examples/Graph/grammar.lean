@@ -19,40 +19,38 @@ import FormatSpec.Decode
 import FormatSpec.Roundtrip
 
 /-!
-# Graph example — a STRUCTURED (non-`Int`) value via the `value'` escape
+# Graph example — the `bit` terminal, a STRUCTURED value, and ARBITRARY order
 
-The SAT-community encoding of a graph on `n` vertices as the upper-triangle of its adjacency
-matrix, written as a bit string. For `n = 3` the upper triangle has `T(3) = 3·2/2 = 3` cells,
-one per unordered pair, in the order `(0,1) (0,2) (1,2)`:
+The SAT-community encoding of a simple graph as the upper triangle of its adjacency matrix,
+row-major over the pairs `i < j`, written as a bit string. Crucially this is ONE grammar for
+graphs of EVERY order `n` — not a grammar per size:
 
 ```
-G   ::= E01 " " E02 " " E12   -- 3 upper-triangle cells
-Exy ::= "0" | "1"             -- edge present?
+Adj   ::= Cells        -- the whole adjacency string
+Cells ::= bit+         -- one or more bits — ANY length, hence any order
 ```
 
-This exercises the **arbitrary-typed value** feature: the `value'` escape parses the bit
-string into a structured `Graph3` (an edge list over vertices `{0,1,2}`), NOT an `Int`. The
-generated `Graph.computeValue : String → Option Graph3` is a real string→graph parser whose
-correctness is tied to the readable spec by the same machinery as the scalar examples
-(`IsWf_equiv`, the `decode` roundtrip); the value type simply flows through — it never enters
-those proofs, so structured values are proof-neutral (the whole point: acceptance is
-`IsWf ∧ SatisfiesConstraints`, both value-type-free; the value is a separate function).
+The trick is the design's grammar-over-approximate / constraints-carve-out split:
 
-Design notes:
-* **Fixed `n = 3`.** The grammar is fixed-arity: the vertex count is a compile-time constant,
-  so the length is exactly `T(3)`, and each cell is a DISTINCT named capture (`E01`/`E02`/`E12`)
-  read independently by the value function — no `rep` needed. A single format spanning ALL `n`
-  would need a data-dependent count ("read `n`, then read `T(n)` cells"), which is the
-  hand-written-`decode` / non-regular case the design flags; out of scope by construction.
-* **Why not larger `n` here?** `n = 3` (3 cells) keeps the flat `G` sequence within the
-  reconciliation closer's nested-∃ normalization budget. Larger `n` (a deeper flat sequence)
-  hits the SAME closer scaling limit noted for wide sequences generally — orthogonal to the
-  value-type feature this example demonstrates. Expressing the cells with `rep … sepBy " "`
-  would collapse the sequence to one node (lifting that limit), but reading the individual
-  repeated cells back for the value function needs rep-element capture exposure (a separate,
-  planned increment); with distinct named captures the value reads each cell directly today.
-* The value is written with the `value'` ESCAPE (`toGraph3`), because a graph is outside the
-  scalar-arithmetic `value` DSL — exactly what the escape hatch is for.
+* the **grammar** accepts any non-empty bit run (`bit+`) — trivially regular, any length;
+* a **constraint** (`isTriangular`) requires the length to be a triangular number
+  `T(n) = n(n-1)/2` (else the bits are not a complete upper triangle of any `n`);
+* the **value** (`toGraph`, a `value'` escape) *recovers* `n` from the length and decodes the
+  bits into a structured `Graph` (vertex count + edge list) — NOT an `Int`.
+
+So the string→graph parser handles `n = 2, 3, 4, …` uniformly. This is the answer to "must we
+have an independent grammar for each order?" — no: the length is data, checked by a constraint
+and interpreted by the value, exactly what those layers are for. (A format that also had to
+*read* `n` from a header before the bits would be data-dependent/non-regular — the
+hand-written-`decode` case; here `n` is recovered post-hoc from the length, which stays within
+the flat-regular grammar + constraint + value decomposition.)
+
+Notes:
+* `bit` is the binary terminal (`0`/`1`) — the natural leaf alphabet here, alongside
+  `digit`/`hexDigit` (so `Bit ::= "0" | "1"` per-cell productions are unnecessary).
+* `Cells` wraps the `bit+` terminal in a NAMED production so its matched substring is captured
+  (a bare top-level terminal records no name-keyed capture; the value/constraint read by name).
+* The value is a `value'` ESCAPE because a graph is outside the scalar-arithmetic `value` DSL.
 
 Writes `spec.lean` beside this file.
 -/
@@ -60,40 +58,59 @@ Writes `spec.lean` beside this file.
 namespace FormatSpec.Examples.Graph
 open FormatSpec
 
-/-- A simple graph on 3 vertices `{0,1,2}`, as the set of present edges. The STRUCTURED
-    value the parser produces (a custom type — not an `Int`). -/
-structure Graph3 where
+/-- A simple graph as a vertex count + the set of present edges (over `{0,…,order-1}`). The
+    STRUCTURED value the parser produces — a custom type, not an `Int`. -/
+structure Graph where
+  order : Nat
   edges : List (Nat × Nat)
   deriving Repr, DecidableEq, Inhabited
 
-/-- Author-supplied structured decoder: the three upper-triangle edge bits → the graph. Each
-    `"1"` cell contributes its pair; `"0"` contributes nothing. This is the `value'` escape:
-    an ordinary Lean function over the decoded component strings, returning a `Graph3`. -/
-def toGraph3 (e01 e02 e12 : String) : Graph3 :=
-  let cell (b : String) (p : Nat × Nat) : List (Nat × Nat) := if b == "1" then [p] else []
-  { edges := cell e01 (0,1) ++ cell e02 (0,2) ++ cell e12 (1,2) }
+/-- Recover the vertex count `n` from the number of upper-triangle cells `L = n(n-1)/2`: the
+    `n` with `T(n) = L` (`0` if `L` is not triangular — excluded at valid inputs by the
+    `isTriangular` constraint). Bounded search up to `L+1` (since `T(n) ≥ n-1 ≥ L` there). -/
+def orderOf (L : Nat) : Nat :=
+  ((List.range (L + 2)).find? (fun n => n * (n - 1) / 2 == L)).getD 0
+
+/-- Author-supplied structured decoder (`value'` escape): the upper-triangle bit string →
+    the graph. Recovers `n` from the length, enumerates the pairs `i < j` in the same
+    row-major order, and keeps a pair iff its bit is `'1'`. -/
+def toGraph (cells : String) : Graph :=
+  let bs := cells.toList
+  let n := orderOf bs.length
+  let pairs := (List.range n).flatMap (fun i =>
+    (List.range n).filterMap (fun j => if i < j then some (i, j) else none))
+  { order := n,
+    edges := (pairs.zip bs).filterMap (fun (p, b) => if b = '1' then some p else none) }
+
+/-- The length is a triangular number `n(n-1)/2` for some `n` — i.e. the bits form a complete
+    upper triangle. A decidable bounded search; the `constraints'` escape. -/
+def isTriangular (cells : String) : Bool :=
+  (List.range (cells.length + 2)).any (fun n => n * (n - 1) / 2 == cells.length)
 
 format_spec Graph where
   grammar
-    G   ::= E01 " " E02 " " E12
-    E01 ::= "0" | "1"
-    E02 ::= "0" | "1"
-    E12 ::= "0" | "1"
+    Adj   ::= Cells
+    Cells ::= bit+
   value'
-    toGraph3 E01 E02 E12
+    toGraph Cells
+  constraints'
+    isTriangular Cells
   to "FormatSpec/Examples/Graph"
 
-#check (Graph.IsWf.G       : String → Prop)
-#check (Graph.computeValue : String → Option Graph3)   -- STRUCTURED value, not Int
+#check (Graph.IsWf.Adj      : String → Prop)
+#check (Graph.computeValue  : String → Option Graph)   -- STRUCTURED value, any order
 
-#eval Graph.computeValue "1 0 1"   -- some { edges := [(0,1),(1,2)] }      (a path 0-1-2)
-#eval Graph.computeValue "1 1 1"   -- some { edges := [(0,1),(0,2),(1,2)] } (triangle K₃)
-#eval Graph.computeValue "0 0 0"   -- some { edges := [] }                  (empty graph)
-#eval decide (Graph.IsValid "1 0 1")  -- true
-#eval decide (Graph.IsValid "1 0")    -- false (only 2 cells — grammar)
-#eval decide (Graph.IsValid "2 0 1")  -- false ("2" not a bit — grammar)
+#eval Graph.computeValue "1"        -- some { order := 2, edges := [(0,1)] }
+#eval Graph.computeValue "101"      -- some { order := 3, edges := [(0,1),(1,2)] }   (path)
+#eval Graph.computeValue "111"      -- some { order := 3, edges := [(0,1),(0,2),(1,2)] } (K₃)
+#eval Graph.computeValue "111111"   -- some { order := 4, edges := all 6 pairs }        (K₄)
+#eval decide (Graph.IsValid "111")     -- true  (T(3) = 3)
+#eval decide (Graph.IsValid "111111") -- true  (T(4) = 6)
+#eval decide (Graph.IsValid "11")      -- false (2 is not triangular)
+#eval decide (Graph.IsValid "1111")    -- false (4 is not triangular)
+#eval decide (Graph.IsValid "1a1")     -- false ('a' is not a bit — grammar)
 
-#check (Graph.IsWf_equiv : ∀ s, IsWf Graph.grammar s ↔ Graph.IsWf.G s)
+#check (Graph.IsWf_equiv : ∀ s, IsWf Graph.grammar s ↔ Graph.IsWf.Adj s)
 example : DecidablePred Graph.IsValid := inferInstance
 
 end FormatSpec.Examples.Graph
