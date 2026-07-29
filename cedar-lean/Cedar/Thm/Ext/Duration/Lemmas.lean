@@ -432,7 +432,7 @@ private theorem dropEnd_append_endsWith (str suffix : String)
     (h : str.endsWith suffix = true) :
     (str.dropEnd suffix.length).toString ++ suffix = str := by
   apply String.ext
-  simp [String.toList_append, ← String.length_toList, String.endsWith_eq_endsWith_toSlice] at *
+  simp [String.toList_append, ← String.length_toList, String.endsWith_eq_endsWith_toSlice, -String.endsWith_toSlice] at *
   obtain ⟨pfx, hpfx⟩ := h; rw [← hpfx]; simp
 
 -- dropEnd n then append the dropped tail gives back the original.
@@ -475,7 +475,7 @@ private theorem extract_reconstruct_step (isNeg : Bool) (s suffix : String) (v :
         apply String.ext
         simp only [String.toList_append, String.toList_ofList, ← String.length_toList]
         have hew_suffix : suffix.toList <:+ s.toList := by
-          simp [String.endsWith_eq_endsWith_toSlice] at hew; exact hew
+          simp [String.endsWith_eq_endsWith_toSlice, -String.endsWith_toSlice] at hew; exact hew
         obtain ⟨mid, hmid_eq⟩ := hew_suffix
         have hmid_is_take : mid = List.take (s.toList.length - suffix.toList.length) s.toList := by
           rw [← hmid_eq]; simp
@@ -522,6 +522,8 @@ theorem wf_of_parseDuration?_eq_some (isNeg : Bool) (body : String) (d : Duratio
   split at h
   · simp at h
   · rename_i h_ne
+    -- v4.31 do-desugar leaves a `pure PUnit.unit` bind wrapper for the leading guard; reduce it.
+    simp only [Option.pure_def] at h
     cases h₁ : parseUnit? isNeg body "ms" with
     | none => simp [h₁] at h
     | some p₁ =>
@@ -709,7 +711,7 @@ private theorem extract_step_chain_some (pfx digits suffix : String) (n : Nat)
     extractTrailingQuantity (pfx ++ digits ++ suffix) suffix = some (n, pfx) := by
   unfold extractTrailingQuantity
   have hew : (pfx ++ digits ++ suffix).endsWith suffix = true := by
-    simp [String.endsWith_eq_endsWith_toSlice, String.toList_append]
+    simp [String.endsWith_eq_endsWith_toSlice, -String.endsWith_toSlice, String.toList_append]
     exact ⟨pfx.toList ++ digits.toList, by simp [List.append_assoc]⟩
   simp only [hew, ite_true]
   have hdrop_toList : ((pfx ++ digits ++ suffix).dropEnd suffix.length).toString.toList
@@ -786,7 +788,7 @@ private theorem pfx_append_chunk_reverse_non_digit (pfx digits suffix : String)
 private theorem not_endsWith_ms_of_digits_s_chain (pfx digits : String)
     (hdq : IsDigits digits) :
     (pfx ++ digits ++ "s").endsWith "ms" = false := by
-  simp [String.endsWith_eq_endsWith_toSlice, String.toList_append]
+  simp [String.endsWith_eq_endsWith_toSlice, -String.endsWith_toSlice, String.toList_append]
   intro ⟨pre, hpre⟩
   have hne : digits.toList ≠ [] := by intro h; exact hdq.ne_empty (by ext; simp [h])
   have hlen : pre.length + 2 = pfx.toList.length + digits.toList.length + 1 := by
@@ -816,7 +818,7 @@ private theorem not_endsWith_single_of_last_ne (s : String) (c : Char)
     (h : s.toList ≠ [])
     (hlast : s.toList.getLast h ≠ c) :
     s.endsWith (String.ofList [c]) = false := by
-  simp [String.endsWith_eq_endsWith_toSlice]
+  simp [String.endsWith_eq_endsWith_toSlice, -String.endsWith_toSlice]
   intro ⟨pre, hpre⟩
   have h_last_c : (pre ++ [c]).getLast (by simp) = c := by simp
   have h_eq_last : s.toList.getLast h = (pre ++ [c]).getLast (by simp) := by
@@ -859,7 +861,7 @@ private theorem extract_chain_rest_empty_of_wf (isNeg : Bool) (body : String)
         cases seconds with
         | none =>
           rcases minutes with _ | m_d <;> rcases hours with _ | hr_d <;> rcases days with _ | d_d <;>
-            simp [durationChunk, String.endsWith_eq_endsWith_toSlice, String.toList_append] <;>
+            simp [durationChunk, String.endsWith_eq_endsWith_toSlice, -String.endsWith_toSlice, String.toList_append] <;>
             (intro ⟨t, ht⟩; have := congrArg List.getLast? ht;
               simp [List.getLast?_append, List.getLast?_cons] at this)
         | some s_d =>
@@ -899,7 +901,7 @@ private theorem extract_chain_rest_empty_of_wf (isNeg : Bool) (body : String)
       have hew : (durationChunk days "d" ++ durationChunk hours "h" ++
           durationChunk minutes "m").endsWith "s" = false := by
         rcases minutes with _ | m_d <;> rcases hours with _ | hr_d <;> rcases days with _ | d_d <;>
-          simp [durationChunk, String.endsWith_eq_endsWith_toSlice, String.toList_append] <;>
+          simp [durationChunk, String.endsWith_eq_endsWith_toSlice, -String.endsWith_toSlice, String.toList_append] <;>
           (intro ⟨t, ht⟩; have := congrArg List.getLast? ht;
             simp [List.getLast?_append, List.getLast?_cons] at this)
       simp only [durationChunk] at hew; simp [hew]
@@ -930,7 +932,7 @@ private theorem extract_chain_rest_empty_of_wf (isNeg : Bool) (body : String)
       | none =>
         simp only [String.append_empty]
         cases days with
-        | none => simp [String.endsWith_eq_endsWith_toSlice]
+        | none => simp [String.endsWith_eq_endsWith_toSlice, -String.endsWith_toSlice]
         | some d_d =>
           have h_iq := hwf_d
           obtain ⟨hne_d, _⟩ := h_iq
@@ -996,7 +998,7 @@ private theorem extract_chain_rest_empty_of_wf (isNeg : Bool) (body : String)
       simp only [durationChunk, String.append_empty]
       unfold extractPair
       cases days with
-      | none => simp [String.endsWith_eq_endsWith_toSlice]
+      | none => simp [String.endsWith_eq_endsWith_toSlice, -String.endsWith_toSlice]
       | some d_d =>
         have h_iq := hwf_d
         obtain ⟨hne_d, _hsome_d⟩ := h_iq
@@ -1027,13 +1029,13 @@ private theorem extract_chain_rest_empty_of_wf (isNeg : Bool) (body : String)
   -- Step 5: rest₅ = (extract rest₄ "d").2 = ""
   rw [hr₅, hrest₄]
   cases days with
-  | none => simp [durationChunk, extractPair, String.endsWith_eq_endsWith_toSlice]
+  | none => simp [durationChunk, extractPair, String.endsWith_eq_endsWith_toSlice, -String.endsWith_toSlice]
   | some d_d =>
     have h_iq := hwf_d
     have hsome := h_iq.toNat?'_isSome
     obtain ⟨n, hnat⟩ := Option.isSome_iff_exists.mp hsome
     have := extract_step_chain "" d_d "d" n h_iq hnat (Or.inl rfl)
-    simpa [String.empty_append] using this
+    simpa [durationChunk, String.empty_append] using this
 
 -- ms-step: extract of full asString.
 private theorem extract_ms_step
@@ -1054,7 +1056,7 @@ private theorem extract_ms_step
       cases seconds with
       | none =>
         rcases minutes with _ | m_d <;> rcases hours with _ | hr_d <;> rcases days with _ | d_d <;>
-          simp [durationChunk, String.endsWith_eq_endsWith_toSlice, String.toList_append] <;>
+          simp [durationChunk, String.endsWith_eq_endsWith_toSlice, -String.endsWith_toSlice, String.toList_append] <;>
           (intro ⟨t, ht⟩; have := congrArg List.getLast? ht;
             simp [List.getLast?_append, List.getLast?_cons] at this)
       | some s_d =>
@@ -1097,7 +1099,7 @@ private theorem extract_s_step
     have hew : (durationChunk days "d" ++ durationChunk hours "h" ++
         durationChunk minutes "m").endsWith "s" = false := by
       rcases minutes with _ | m_d <;> rcases hours with _ | hr_d <;> rcases days with _ | d_d <;>
-        simp [durationChunk, String.endsWith_eq_endsWith_toSlice, String.toList_append] <;>
+        simp [durationChunk, String.endsWith_eq_endsWith_toSlice, -String.endsWith_toSlice, String.toList_append] <;>
         (intro ⟨t, ht⟩; have := congrArg List.getLast? ht;
           simp [List.getLast?_append, List.getLast?_cons] at this)
     simp only [durationChunk] at hew ⊢; exact hew
@@ -1132,7 +1134,7 @@ private theorem extract_m_step
     | none =>
       simp only [String.append_empty]
       cases days with
-      | none => simp [String.endsWith_eq_endsWith_toSlice]
+      | none => simp [String.endsWith_eq_endsWith_toSlice, -String.endsWith_toSlice]
       | some d_d =>
         have hne_list : (d_d ++ "d").toList ≠ [] := by
           simp only [String.toList_append]
@@ -1188,7 +1190,7 @@ private theorem extract_h_step
     simp only [durationChunk, String.append_empty]
     refine ⟨0, extract_absent_some _ _ ?_⟩
     cases days with
-    | none => simp [String.endsWith_eq_endsWith_toSlice]
+    | none => simp [String.endsWith_eq_endsWith_toSlice, -String.endsWith_toSlice]
     | some d_d =>
       have hne_list : (d_d ++ "d").toList ≠ [] := by
         simp only [String.toList_append]
@@ -1218,7 +1220,7 @@ private theorem extract_d_step (days : Option String) (hwf_d : IsWfOptionalQuant
   | none =>
     refine ⟨0, ?_⟩
     simp only [durationChunk]
-    exact extract_absent_some _ _ (by simp [String.endsWith_eq_endsWith_toSlice])
+    exact extract_absent_some _ _ (by simp [String.endsWith_eq_endsWith_toSlice, -String.endsWith_toSlice])
   | some d_d =>
     have h_iq : IsDigits d_d := hwf_d
     obtain ⟨n, hnat⟩ := Option.isSome_iff_exists.mp h_iq.toNat?'_isSome
@@ -1382,7 +1384,7 @@ theorem parseDuration?_eq_duration?_of_wf (isNegative : Bool) (body : String)
   have h_ne_isEmpty : body.isEmpty = false := by
     cases hb : body.isEmpty <;> simp_all [String.isEmpty_iff]
   unfold parseDuration?
-  simp only [bind, Option.bind, h_ne_isEmpty]
+  simp only [bind, Option.bind, Option.pure_def, h_ne_isEmpty]
   cases h₁ : parseUnit? isNegative body "ms" with
   | none =>
     -- parseUnit? = none on the ms step; since passthrough returns some, the suffix was found.
@@ -1416,7 +1418,7 @@ theorem parseDuration?_eq_duration?_of_wf (isNegative : Bool) (body : String)
         cases seconds with
         | none =>
           rcases minutes with _ | m_d <;> rcases hours with _ | hr_d <;> rcases days with _ | d_d <;>
-            simp [String.endsWith_eq_endsWith_toSlice, String.toList_append] at hew <;>
+            simp [String.endsWith_eq_endsWith_toSlice, -String.endsWith_toSlice, String.toList_append] at hew <;>
             (obtain ⟨t, ht⟩ := hew; have := congrArg List.getLast? ht;
               simp [List.getLast?_append, List.getLast?_cons] at this)
         | some s_d =>
@@ -1501,7 +1503,7 @@ theorem parseDuration?_eq_duration?_of_wf (isNegative : Bool) (body : String)
           cases seconds with
           | none =>
             rcases minutes with _ | m_d <;> rcases hours with _ | hr_d <;> rcases days with _ | d_d <;>
-              simp [String.endsWith_eq_endsWith_toSlice, String.toList_append] at hew <;>
+              simp [String.endsWith_eq_endsWith_toSlice, -String.endsWith_toSlice, String.toList_append] at hew <;>
               (obtain ⟨t, ht⟩ := hew; have := congrArg List.getLast? ht;
                 simp [List.getLast?_append, List.getLast?_cons] at this)
           | some s_d =>
@@ -1613,7 +1615,7 @@ theorem parseDuration?_eq_duration?_of_wf (isNegative : Bool) (body : String)
             | none =>
               rcases minutes with _ | m_d <;> rcases hours with _ | hr_d <;>
                 rcases days with _ | d_d <;>
-                simp [durationChunk, String.endsWith_eq_endsWith_toSlice, String.toList_append] <;>
+                simp [durationChunk, String.endsWith_eq_endsWith_toSlice, -String.endsWith_toSlice, String.toList_append] <;>
                 (intro ⟨t, ht⟩; have := congrArg List.getLast? ht;
                   simp [List.getLast?_append, List.getLast?_cons] at this)
             | some s_d =>
@@ -1649,7 +1651,7 @@ theorem parseDuration?_eq_duration?_of_wf (isNegative : Bool) (body : String)
           rw [hrest₁_eq] at hew
           rcases minutes with _ | m_d <;> rcases hours with _ | hr_d <;>
             rcases days with _ | d_d <;>
-            simp [durationChunk, String.endsWith_eq_endsWith_toSlice, String.toList_append] at hew <;>
+            simp [durationChunk, String.endsWith_eq_endsWith_toSlice, -String.endsWith_toSlice, String.toList_append] at hew <;>
             (obtain ⟨t, ht⟩ := hew; have := congrArg List.getLast? ht;
               simp [List.getLast?_append, List.getLast?_cons] at this)
         | some s_d => exact ⟨s_d, rfl⟩
@@ -1761,7 +1763,7 @@ theorem parseDuration?_eq_duration?_of_wf (isNegative : Bool) (body : String)
                 | none =>
                   rcases minutes with _ | m_d <;> rcases hours with _ | hr_d <;>
                     rcases days with _ | d_d <;>
-                    simp [durationChunk, String.endsWith_eq_endsWith_toSlice, String.toList_append] <;>
+                    simp [durationChunk, String.endsWith_eq_endsWith_toSlice, -String.endsWith_toSlice, String.toList_append] <;>
                     (intro ⟨t, ht⟩; have := congrArg List.getLast? ht;
                       simp [List.getLast?_append, List.getLast?_cons] at this)
                 | some s_d =>
@@ -1803,7 +1805,7 @@ theorem parseDuration?_eq_duration?_of_wf (isNegative : Bool) (body : String)
                   durationChunk minutes "m").endsWith "s" = false := by
                 rcases minutes with _ | m_d <;> rcases hours with _ | hr_d <;>
                   rcases days with _ | d_d <;>
-                  simp [durationChunk, String.endsWith_eq_endsWith_toSlice, String.toList_append] <;>
+                  simp [durationChunk, String.endsWith_eq_endsWith_toSlice, -String.endsWith_toSlice, String.toList_append] <;>
                   (intro ⟨t, ht⟩; have := congrArg List.getLast? ht;
                     simp [List.getLast?_append, List.getLast?_cons] at this)
               simp only [durationChunk] at hew'; simp [hew']
@@ -1836,7 +1838,7 @@ theorem parseDuration?_eq_duration?_of_wf (isNegative : Bool) (body : String)
             | none =>
               simp only [durationChunk, String.append_empty] at hew
               cases days with
-              | none => simp [String.endsWith_eq_endsWith_toSlice] at hew
+              | none => simp [String.endsWith_eq_endsWith_toSlice, -String.endsWith_toSlice] at hew
               | some d_d =>
                 have h_iq := hwf_d
                 obtain ⟨hne_d, _⟩ := h_iq
@@ -1990,7 +1992,7 @@ theorem parseDuration?_eq_duration?_of_wf (isNegative : Bool) (body : String)
                     | none =>
                       rcases minutes with _ | m_d <;> rcases hours with _ | hr_d <;>
                         rcases days with _ | d_d <;>
-                        simp [durationChunk, String.endsWith_eq_endsWith_toSlice, String.toList_append] <;>
+                        simp [durationChunk, String.endsWith_eq_endsWith_toSlice, -String.endsWith_toSlice, String.toList_append] <;>
                         (intro ⟨t, ht⟩; have := congrArg List.getLast? ht;
                           simp [List.getLast?_append, List.getLast?_cons] at this)
                     | some s_d =>
@@ -2032,7 +2034,7 @@ theorem parseDuration?_eq_duration?_of_wf (isNegative : Bool) (body : String)
                       durationChunk minutes "m").endsWith "s" = false := by
                     rcases minutes with _ | m_d <;> rcases hours with _ | hr_d <;>
                       rcases days with _ | d_d <;>
-                      simp [durationChunk, String.endsWith_eq_endsWith_toSlice, String.toList_append] <;>
+                      simp [durationChunk, String.endsWith_eq_endsWith_toSlice, -String.endsWith_toSlice, String.toList_append] <;>
                       (intro ⟨t, ht⟩; have := congrArg List.getLast? ht;
                         simp [List.getLast?_append, List.getLast?_cons] at this)
                   simp only [durationChunk] at hew'; simp [hew']
@@ -2065,7 +2067,7 @@ theorem parseDuration?_eq_duration?_of_wf (isNegative : Bool) (body : String)
               | none =>
                 simp only [String.append_empty]
                 cases days with
-                | none => simp [String.endsWith_eq_endsWith_toSlice]
+                | none => simp [String.endsWith_eq_endsWith_toSlice, -String.endsWith_toSlice]
                 | some d_d =>
                   have h_iq := hwf_d
                   obtain ⟨hne_d, _⟩ := h_iq
@@ -2130,7 +2132,7 @@ theorem parseDuration?_eq_duration?_of_wf (isNegative : Bool) (body : String)
               cases days with
               | none =>
                 simp only [durationChunk] at hew
-                simp [String.endsWith_eq_endsWith_toSlice] at hew
+                simp [String.endsWith_eq_endsWith_toSlice, -String.endsWith_toSlice] at hew
               | some d_d =>
                 simp only [durationChunk] at hew
                 have h_iq := hwf_d
@@ -2254,7 +2256,7 @@ theorem parseDuration?_eq_duration?_of_wf (isNegative : Bool) (body : String)
                       | none =>
                         rcases minutes with _ | m_d <;> rcases hours with _ | hr_d <;>
                           rcases days with _ | d_d <;>
-                          simp [durationChunk, String.endsWith_eq_endsWith_toSlice, String.toList_append] <;>
+                          simp [durationChunk, String.endsWith_eq_endsWith_toSlice, -String.endsWith_toSlice, String.toList_append] <;>
                           (intro ⟨t, ht⟩; have := congrArg List.getLast? ht;
                             simp [List.getLast?_append, List.getLast?_cons] at this)
                       | some s_d =>
@@ -2296,7 +2298,7 @@ theorem parseDuration?_eq_duration?_of_wf (isNegative : Bool) (body : String)
                         durationChunk minutes "m").endsWith "s" = false := by
                       rcases minutes with _ | m_d <;> rcases hours with _ | hr_d <;>
                         rcases days with _ | d_d <;>
-                        simp [durationChunk, String.endsWith_eq_endsWith_toSlice, String.toList_append] <;>
+                        simp [durationChunk, String.endsWith_eq_endsWith_toSlice, -String.endsWith_toSlice, String.toList_append] <;>
                         (intro ⟨t, ht⟩; have := congrArg List.getLast? ht;
                           simp [List.getLast?_append, List.getLast?_cons] at this)
                     simp only [durationChunk] at hew'; simp [hew']
@@ -2331,7 +2333,7 @@ theorem parseDuration?_eq_duration?_of_wf (isNegative : Bool) (body : String)
                     | none =>
                       simp only [String.append_empty]
                       cases days with
-                      | none => simp [String.endsWith_eq_endsWith_toSlice]
+                      | none => simp [String.endsWith_eq_endsWith_toSlice, -String.endsWith_toSlice]
                       | some d_d =>
                         have h_iq := hwf_d
                         obtain ⟨hne_d, _⟩ := h_iq
@@ -2395,7 +2397,7 @@ theorem parseDuration?_eq_duration?_of_wf (isNegative : Bool) (body : String)
                 simp only [durationChunk, String.append_empty]
                 unfold extractPair
                 cases days with
-                | none => simp [String.endsWith_eq_endsWith_toSlice]
+                | none => simp [String.endsWith_eq_endsWith_toSlice, -String.endsWith_toSlice]
                 | some d_d =>
                   have h_iq := hwf_d
                   obtain ⟨hne_d, _⟩ := h_iq
@@ -2430,7 +2432,7 @@ theorem parseDuration?_eq_duration?_of_wf (isNegative : Bool) (body : String)
                 have hdc : durationChunk none "d" = "" := rfl
                 rw [hdc] at hrest₄
                 rw [hrest₄] at hew
-                simp [String.endsWith_eq_endsWith_toSlice] at hew
+                simp [String.endsWith_eq_endsWith_toSlice, -String.endsWith_toSlice] at hew
               | some d_d => exact ⟨d_d, rfl⟩
             obtain ⟨d_d, hdays_eq⟩ := hdays_some
             rw [hdays_eq] at hrest₄ hwf_d
