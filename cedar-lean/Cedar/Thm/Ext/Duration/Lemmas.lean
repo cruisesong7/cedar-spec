@@ -2566,13 +2566,17 @@ theorem wf_str_iff_signed_body (str : String) :
       simp
     simp [hsplit]
     constructor
-    · rintro (hbody | ⟨body, hstr_eq, hbody⟩)
-      · exact False.elim ((duration_body_front_ne_dash str hbody) hfront)
-      · subst str
+    · rintro ⟨sign, body, hstr_eq, (rfl | rfl), hbody⟩
+      · -- Signed: `str = "-" ++ body`, so the stripped body is exactly `body`.
+        subst str
         simpa [dash_append_drop_one_copy] using hbody
+      · -- Unsigned: the body would have to start with `'-'`, which it never does.
+        simp only [String.empty_append] at hstr_eq
+        rw [hstr_eq] at hfront
+        exact False.elim ((duration_body_front_ne_dash body hbody) hfront)
     · intro hbody
-      exact Or.inr ⟨(str.drop 1).copy,
-        string_eq_dash_append_drop_one_of_front_eq_dash str hfront, hbody⟩
+      exact ⟨"-", (str.drop 1).copy,
+        string_eq_dash_append_drop_one_of_front_eq_dash str hfront, Or.inl rfl, hbody⟩
   · have hsplit : isNegativeDuration str = (false, str) := by
       unfold isNegativeDuration
       split
@@ -2580,13 +2584,16 @@ theorem wf_str_iff_signed_body (str : String) :
       · rfl
     simp [hsplit]
     constructor
-    · rintro (hbody | ⟨body, hstr_eq, _⟩)
-      · exact hbody
-      · exact False.elim (hfront (by
+    · rintro ⟨sign, body, hstr_eq, (rfl | rfl), hbody⟩
+      · -- Signed is impossible here: `str` does not start with `'-'`.
+        exact False.elim (hfront (by
           subst str
           exact dash_append_front_eq_dash body))
+      · simp only [String.empty_append] at hstr_eq
+        subst str
+        exact hbody
     · intro hbody
-      exact Or.inl hbody
+      exact ⟨"", str, by simp, Or.inr rfl, hbody⟩
 
 theorem compute_value_eq_signed_body_value (str : String) (_hwf : IsWfDuration str) :
     computeValue str =

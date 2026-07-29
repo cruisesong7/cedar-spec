@@ -107,12 +107,16 @@ public def IsWfBody (body : String) : Prop :=
     body = components.asString
 -- ANCHOR_END: IsWfBody
 
-/-- A duration string is well-formed iff it is either a well-formed body directly,
-    or `"-"` followed by a well-formed body. -/
+/-- A duration string is well-formed iff it is the rendering of an optional `Sign` (`['-']`,
+    the shared `IsWfSign`) followed by a well-formed body. Phrasing it as a rendering existential
+    over the sign — rather than a disjunction that spells the `"-"` case separately — matches the
+    decimal and datetime grammars. -/
 -- ANCHOR: IsWfDuration
 public def IsWfDuration (str : String) : Prop :=
-  IsWfBody str ∨
-  ∃ body, str = "-" ++ body ∧ IsWfBody body
+  ∃ sign body,
+    str = sign ++ body ∧
+    IsWfSign sign ∧
+    IsWfBody body
 -- ANCHOR_END: IsWfDuration
 
 /-- Extract the trailing natural-number token immediately before a duration suffix.
