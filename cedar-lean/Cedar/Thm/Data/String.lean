@@ -210,6 +210,48 @@ theorem join_splitToList {s left right : String}
   rw [← String.toList_inj]
   simpa [List.intercalate] using hi
 
+/-- If `as ++ [sep] ++ bs ++ [sep] ++ cs` has exactly two elements satisfying `P` (namely the two
+    `sep`s), then `splitOnPPrepend P (as ++ sep :: bs ++ sep :: cs) acc` returns the three
+    segments `[acc.reverse ++ as, bs, cs]`. -/
+theorem splitOnPPrepend_two_sep (P : α → Bool) (as bs cs acc : List α) (sep : α)
+    (hsep : P sep = true) (has : ∀ x ∈ as, P x = false) (hbs : ∀ x ∈ bs, P x = false)
+    (hcs : ∀ x ∈ cs, P x = false) :
+    List.splitOnPPrepend P (as ++ sep :: (bs ++ sep :: cs)) acc = (acc.reverse ++ as) :: bs :: [cs] := by
+  induction as generalizing acc with
+  | nil =>
+    rw [List.nil_append, List.splitOnPPrepend_cons_eq_if, hsep]
+    rw [List.splitOnP_eq_splitOnPPrepend, splitOnPPrepend_one_sep P bs cs [] sep hsep hbs hcs]
+    simp
+  | cons a t ih =>
+    simp only [List.cons_append]
+    have ha : P a = false := has a (List.mem_cons.mpr (.inl rfl))
+    rw [List.splitOnPPrepend_cons_neg ha]
+    rw [ih (a :: acc) (fun x hx => has x (List.mem_cons.mpr (.inr hx)))]
+    simp [List.reverse_cons, List.append_assoc]
+
+
+/-- Splitting `s₁ ++ sep ++ s₂ ++ sep ++ s₃` on `sep` yields `[s₁, s₂, s₃]` when no part
+    contains `sep`. -/
+theorem splitToList_eq3 (s₁ s₂ s₃ : String) (p : Char → Bool) (sep : Char)
+    (hsep : p sep = true) (h₁ : ∀ c ∈ s₁.toList, p c = false)
+    (h₂ : ∀ c ∈ s₂.toList, p c = false) (h₃ : ∀ c ∈ s₃.toList, p c = false) :
+    (s₁ ++ String.singleton sep ++ s₂ ++ String.singleton sep ++ s₃).splitToList p = [s₁, s₂, s₃] := by
+  rw [String.splitToList_of_valid]
+  simp only [String.toList_append, String.toList_singleton, List.append_assoc,
+    List.nil_append, List.cons_append]
+  rw [List.splitOnP_eq_splitOnPPrepend]
+  rw [splitOnPPrepend_two_sep p s₁.toList s₂.toList s₃.toList [] sep hsep h₁ h₂ h₃]
+  simp
+
+
+/-- Splitting a string that contains no separator yields the whole string as a single segment. -/
+theorem splitToList_no_sep (s : String) (p : Char → Bool)
+    (h : ∀ c ∈ s.toList, p c = false) :
+    s.splitToList p = [s] := by
+  rw [String.splitToList_of_valid, List.splitOnP_eq_splitOnPPrepend,
+    splitOnPPrepend_no_sep p s.toList [] h]
+  simp
+
 /-! ==============================================================================================
     # `toString`/`repr` of naturals contains no `'.'`
     ============================================================================================== -/
