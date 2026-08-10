@@ -201,9 +201,20 @@ private def parseNumSegsV6 (str : String) : Option (List (BitVec 16)) :=
   then .some []
   else (str.splitToList (· = ':')).mapM parseNumV6
 
+public def splitDoubleColonAux : List Char → List Char → List String
+  | current, ':' :: ':' :: rest =>
+      String.ofList current :: splitDoubleColonAux [] rest
+  | current, c :: rest =>
+      splitDoubleColonAux (current ++ [c]) rest
+  | current, [] =>
+      [String.ofList current]
+
+public def splitDoubleColon (str : String) : List String :=
+  splitDoubleColonAux [] str.toList
+
 private def parseSegsV6 (str : String) : Option IPv6Addr := do
   let segs ←
-    match str.splitOn "::" with
+    match splitDoubleColon str with
     | [s₁] => parseNumSegsV6 s₁
     | [s₁, s₂] => do
       let ns₁ ← parseNumSegsV6 s₁
@@ -273,10 +284,10 @@ public instance IPNet.decLt (d₁ d₂ : IPNet) : Decidable (d₁ < d₂) :=
 
 -- as of this writing, only handles nats up to 0xffff
 private def toHex (n : Nat) : String :=
-  let a0 := hexDigitRepr ((n % 0x10000) / 0x1000)
-  let a1 := hexDigitRepr ((n % 0x1000) / 0x100)
-  let a2 := hexDigitRepr ((n % 0x100) / 0x10)
-  let a3 := hexDigitRepr ((n % 0x10) / 0x1)
+  let a0 := String.singleton ((n % 0x10000) / 0x1000).digitChar
+  let a1 := String.singleton ((n % 0x1000) / 0x100).digitChar
+  let a2 := String.singleton ((n % 0x100) / 0x10).digitChar
+  let a3 := String.singleton ((n % 0x10) / 0x1).digitChar
   s!"{a0}{a1}{a2}{a3}"
 
 instance : ToString IPNet where
