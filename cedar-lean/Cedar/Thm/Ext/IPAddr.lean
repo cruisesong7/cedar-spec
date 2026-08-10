@@ -547,7 +547,9 @@ private theorem parse_toString_v6 (addr : IPv6Addr) (pre : IPv6Prefix) :
     _ = some (v6Value c (some p)) := parse_complete_v6 hsyn hpre
     _ = some (IPNet.V6 ⟨addr, pre⟩) := congrArg some hvalue
 
-private theorem parse_toString_self (net : IPNet) :
+/-- `parse ∘ toString` roundtrip: parsing the canonical representation recovers the original
+    IP-net. -/
+public theorem parse_toString_roundtrip (net : IPNet) :
     IPAddr.ip (toString net) = some net := by
   cases net with
   | V4 cidr =>
@@ -557,12 +559,29 @@ private theorem parse_toString_self (net : IPNet) :
       cases cidr with
       | mk addr pre => exact parse_toString_v6 addr pre
 
-/-- Parsing the canonical string representation of any `IPNet` recovers it: `parse` and `toString`
-    are mutually inverse on parseable nets. This is the headline user-facing property. -/
-public theorem parse_toString_roundtrip (net net' : IPNet)
-    (h : IPAddr.ip (toString net) = some net') :
-    net' = net := by
-  rw [parse_toString_self net] at h
-  exact (Option.some.inj h).symm
+/-- `toString` is injective: distinct IP-nets produce distinct canonical strings. -/
+public theorem toString_injective (net net' : IPNet) (h : toString net = toString net') :
+    net = net' := by
+  have hnet := parse_toString_roundtrip net
+  have hnet' := parse_toString_roundtrip net'
+  rw [h] at hnet
+  rw [hnet] at hnet'
+  injection hnet'
+
+/-- Equal normal form iff equal value: normalization decides IP-net equality. -/
+public theorem normalize_eq_iff_parse_eq (str str' : String) :
+    normalize str = normalize str' ↔ IPAddr.ip str = IPAddr.ip str' := by
+  constructor
+  · intro h
+    unfold normalize at h
+    match hparse : IPAddr.ip str, hparse' : IPAddr.ip str' with
+    | .some net, .some net' =>
+      simp [hparse, hparse', Option.map] at h
+      exact congrArg _ (toString_injective net net' h)
+    | .some net, .none => simp [hparse, hparse', Option.map] at h
+    | .none, .some net' => simp [hparse, hparse', Option.map] at h
+    | .none, .none => rfl
+  · intro h
+    simp [normalize, h]
 
 end Cedar.Thm.IPAddr
