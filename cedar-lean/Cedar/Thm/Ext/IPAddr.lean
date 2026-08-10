@@ -558,10 +558,9 @@ private theorem parse_toString_self (net : IPNet) :
       | mk addr pre => exact parse_toString_v6 addr pre
 
 /-- Parsing the canonical string representation of any `IPNet` recovers it: `parse` and `toString`
-    are mutually inverse on parseable nets. This is the headline user-facing property. (Kept
-    non-`public` since the spec's `ToString IPNet` instance is not `public`; it is an internal
-    corollary of completeness.) -/
-theorem parse_toString_roundtrip (net net' : IPNet) (h : IPAddr.ip (toString net) = some net') :
+    are mutually inverse on parseable nets. This is the headline user-facing property. -/
+public theorem parse_toString_roundtrip (net net' : IPNet)
+    (h : IPAddr.ip (toString net) = some net') :
     net' = net := by
   rw [parse_toString_self net] at h
   exact (Option.some.inj h).symm
